@@ -5,7 +5,8 @@ import csv
 def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False, save_overlay=False):
     overlay_frames = []
     active_ids = {}
-    object_history = []
+    object_final_position = []
+    object_trajectories = []
     FONT = cv.FONT_HERSHEY_SIMPLEX
     roi_x, roi_y, roi_h, roi_w = ROI
     threshold_distance = 50
@@ -21,11 +22,11 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
             tracked_obj.object_id = obj_id
             if tracked_obj.position[0] > img_w:
                 tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
-                object_history.append(tracked_obj)
+                object_final_position.append(tracked_obj)
                 del active_ids[obj_id]
             elif frame_index - tracked_obj.most_recent_frame > timeout_threshold:
                 tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
-                object_history.append(tracked_obj)
+                object_final_position.append(tracked_obj)
                 del active_ids[obj_id]  # Expire IDs if no new position found
 
         for obj in objects:
@@ -53,7 +54,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
             tracked_obj.object_id = obj_id
             cv.putText(img_copy, str(obj_id), tracked_obj.position, FONT, 1, (255, 255, 255), 1, cv.LINE_AA)
             tracked_obj.outlet_assignment(roi_h, roi_y)  # Assignment again, in case video ends before obj can exit
-            object_history.append(tracked_obj)
+            object_trajectories.append(tracked_obj)  # This seems to make duplicates
 
         # Draw ROI on every frame
         if draw_ROI:
@@ -65,9 +66,9 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
         for idx, overlay_frame in enumerate(overlay_frames):
             save_path = output_path + f"{idx}.png"
             cv.imwrite(save_path, overlay_frame)
-        return overlay_frames, object_history
+        return overlay_frames, object_final_position, object_trajectories
     else:
-        return overlay_frames, object_history
+        return overlay_frames, object_final_position, object_trajectories
 
 
 def export_to_csv(object_history, csv_filename):

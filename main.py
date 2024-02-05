@@ -59,12 +59,15 @@ canny_lower = 200
 canny_upper = 600
 
 # Perform tracking
-overlay_frames, object_history = tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False,
+overlay_frames, object_final_position, object_trajectories = tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False,
                                           save_overlay=False)
 
 # Create csv file from tracking info
-csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\results.csv'
-export_to_csv(object_history, csv_filename)
+csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\final_position_results.csv'
+export_to_csv(object_final_position, csv_filename)
+
+csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\trajectory_results.csv'
+export_to_csv(object_trajectories, csv_filename)
 
 # ffmpeg to video code
 # ffmpeg -framerate 7 -i frame_%d.png tracking.mp4
