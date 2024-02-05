@@ -29,7 +29,7 @@ import matplotlib.pyplot as plt
 import cv2 as cv
 import os
 
-from tracking import tracking, spot_correction, DetectedObject
+from tracking import tracking, spot_correction
 
 
 def open_cv_canny_overlay():
@@ -107,47 +107,6 @@ def canny_contours_overlay(input, output, ROI, spots, preview=False, save_overla
     else:
         return img_copy
 
-
-def detect_objects(frame, frame_index, ROI, spots):
-    """
-    Detects objects from inputted frame using canny edge detection and contour calculations.
-
-    Objects are deteced within the ROI bounds. Spots are regions that are removed from edge detection
-
-    Parameters:
-    - frame: image from a movie.
-    - frame_index: index of frame from movie.
-    - ROI: tuple (roi_x, roi_y, roi_h, roi_w)
-    - spots: list of tuples where spot in spots = (x,y,w,h)
-
-    Returns:
-    The detected objects as contours: area_contours, img_copy a copy of the input frame, which may be the frame itself or contours only.
-    """
-
-    canny_lower = 200
-    canny_upper = 600
-    roi_x, roi_y, roi_h, roi_w = ROI
-    img_copy = frame.copy()
-    img_copy = cv.cvtColor(img_copy, cv.COLOR_GRAY2RGB)
-    canny_img = cv.Canny(frame, canny_lower, canny_upper, 5)
-    corrected_image = spot_correction(canny_img, spots)
-    img_copy[corrected_image == 255] = [0, 0, 255]  # turn edges to red (bgr)
-    img_copy = corrected_image  # avoids overlay on regular image, instead visualizes contours
-    contours, hierarchy = cv.findContours(corrected_image, mode=cv.RETR_TREE, method=cv.CHAIN_APPROX_NONE)
-    area_contours = []
-    # Get contours in analysis region with area
-    for cnt in contours:
-        x, y, w, h = cv.boundingRect(cnt)
-        if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
-            if cv.contourArea(cnt, True) > 0:
-                area_contours.append(
-                    DetectedObject(id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
-            else:
-                pass
-        else:
-            pass
-
-    return area_contours, img_copy
 
 def determine_object_color(y, roi_y):
     if int(y) > (roi_h / 2 + roi_y):
