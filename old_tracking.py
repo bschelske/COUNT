@@ -19,7 +19,7 @@ def tracking(frames, output_path, ROI, spots, save_overlay=False):
 
         for obj in objects:
             if obj.enters_from_left():
-                obj.id = next_id
+                obj.object_id = next_id
                 active_ids[next_id] = {"object": obj, "last_detected": frame_index}
                 next_id += 1
 

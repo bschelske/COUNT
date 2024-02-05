@@ -27,7 +27,7 @@ ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
 import cv2 as cv
 import os
 
-from tracking import tracking
+from tracking import tracking, export_to_csv
 
 def get_frames():
     # Retrieves paths of frames from a directory as a list
@@ -56,7 +56,13 @@ output_path = r"C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\frame_"
 canny_lower = 200
 canny_upper = 600
 
-overlayed_frames = tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, save_overlay=True)
+# Perform tracking
+overlay_frames, object_history = tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False,
+                                          save_overlay=False)
+
+# Create csv file from tracking info
+csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\results.csv'
+export_to_csv(object_history, csv_filename)
 
 # ffmpeg to video code
 # ffmpeg -framerate 7 -i frame_%d.png tracking.mp4
