@@ -6,7 +6,6 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
     overlay_frames = []
     active_ids = {}
     object_final_position = []
-    object_trajectories = []
     FONT = cv.FONT_HERSHEY_SIMPLEX
     roi_x, roi_y, roi_h, roi_w = ROI
     threshold_distance = 50
@@ -37,7 +36,6 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
                 distance = calculate_distance(obj, tracked_obj)
                 if distance < threshold_distance and obj.position[0] > tracked_obj.position[0]:
                     tracked_obj.object_id = obj.object_id
-                    tracked_obj.update_position(obj.position)
                     tracked_obj.most_recent_frame = frame_index  # Update last frame detected
                     match_found = True
                     break
@@ -53,8 +51,6 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
         for obj_id, tracked_obj in active_ids.items():
             tracked_obj.object_id = obj_id
             cv.putText(img_copy, str(obj_id), tracked_obj.position, FONT, 1, (255, 255, 255), 1, cv.LINE_AA)
-            tracked_obj.outlet_assignment(roi_h, roi_y)  # Assignment again, in case video ends before obj can exit
-            object_trajectories.append(tracked_obj)  # This seems to make duplicates
 
         # Draw ROI on every frame
         if draw_ROI:
@@ -66,9 +62,9 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
         for idx, overlay_frame in enumerate(overlay_frames):
             save_path = output_path + f"{idx}.png"
             cv.imwrite(save_path, overlay_frame)
-        return overlay_frames, object_final_position, object_trajectories
+        return overlay_frames, object_final_position
     else:
-        return overlay_frames, object_final_position, object_trajectories
+        return overlay_frames, object_final_position
 
 
 def export_to_csv(object_history, csv_filename):
