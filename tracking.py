@@ -1,9 +1,9 @@
 import cv2 as cv
 
 
-def tracking(frames, output_path, ROI, spots, save_overlay=False):
+def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, save_overlay=False):
     font = cv.FONT_HERSHEY_SIMPLEX
-    overlayed_frames = []
+    overlay_frames = []
     roi_x, roi_y, roi_h, roi_w = ROI
     top = []
     bottom = []
@@ -14,7 +14,7 @@ def tracking(frames, output_path, ROI, spots, save_overlay=False):
     next_id = 1
 
     for frame_index, frame in enumerate(frames):
-        objects, img_copy = detect_objects(frame, frame_index, ROI, spots)
+        objects, img_copy = detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower)
 
         # Remove IDs of objects that have moved off the screen
         for obj_id, tracked_obj in list(active_ids.items()):
@@ -47,17 +47,17 @@ def tracking(frames, output_path, ROI, spots, save_overlay=False):
 
         # Draw ROI on every frame
         # cv.rectangle(img_copy, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255,0,0), 2)
-        overlayed_frames.append(img_copy)
+        overlay_frames.append(img_copy)
 
     print(f'Total Cells: {len(active_ids)}\nTop: {len(top)}\nBottom: {len(bottom)}')
 
     if save_overlay:
-        for idx, overlay_frame in enumerate(overlayed_frames):
+        for idx, overlay_frame in enumerate(overlay_frames):
             save_path = output_path + f"{idx}.png"
             cv.imwrite(save_path, overlay_frame)
         return None
     else:
-        return overlayed_frames
+        return overlay_frames
 
 
 def spot_correction(input_edges, spots):
@@ -68,12 +68,11 @@ def spot_correction(input_edges, spots):
 
 
 class DetectedObject:
-    def __init__(self, id, position, size, most_recent_frame):
-        self.id = id
+    def __init__(self, object_id, position, size, most_recent_frame):
+        self.id = object_id
         self.position = position
         self.size = size
         self.most_recent_frame = most_recent_frame
-
 
     def update_position(self, new_position):
         self.position = new_position
@@ -100,19 +99,19 @@ class DetectedObject:
         return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
 
 
-def calculate_distance(detectedobject1, detectedobject2):
-    possible_center = detectedobject1.center()
-    tracked_center = detectedobject2.center()
+def calculate_distance(detected_object1, detected_object2):
+    possible_center = detected_object1.center()
+    tracked_center = detected_object2.center()
     distance = int(
         (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
 
 
-def detect_objects(frame, frame_index, ROI, spots):
+def detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower):
     """
     Detects objects from inputted frame using canny edge detection and contour calculations.
 
-    Objects are deteced within the ROI bounds. Spots are regions that are removed from edge detection
+    Objects are detected within the ROI bounds. Spots are regions that are removed from edge detection
 
     Parameters:
     - frame: image from a movie.
@@ -121,11 +120,10 @@ def detect_objects(frame, frame_index, ROI, spots):
     - spots: list of tuples where spot in spots = (x,y,w,h)
 
     Returns:
-    The detected objects as contours: area_contours, img_copy a copy of the input frame, which may be the frame itself or contours only.
+    The detected objects as contours: area_contours, img_copy a copy of the input frame, which may be the frame itself
+    or contours only.
     """
 
-    canny_lower = 200
-    canny_upper = 600
     roi_x, roi_y, roi_h, roi_w = ROI
     img_copy = frame.copy()
     img_copy = cv.cvtColor(img_copy, cv.COLOR_GRAY2RGB)
@@ -141,7 +139,7 @@ def detect_objects(frame, frame_index, ROI, spots):
         if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
             if cv.contourArea(cnt, True) > 0:
                 area_contours.append(
-                    DetectedObject(id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
             else:
                 pass
         else:

@@ -52,7 +52,11 @@ frames = get_frames()
 # Declare output path
 output_path = r"C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\frame_"
 
-overlayed_frames = tracking(frames, output_path, ROI, spots, save_overlay=True)
+# Canny Thresholding values:
+canny_lower = 200
+canny_upper = 600
+
+overlayed_frames = tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, save_overlay=True)
 
 # ffmpeg to video code
 # ffmpeg -framerate 7 -i frame_%d.png tracking.mp4
