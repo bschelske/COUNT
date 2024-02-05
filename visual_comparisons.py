@@ -1,3 +1,12 @@
+"""
+For creating visuals in slideshows.
+
+Canny edge detection and object tracking has visual appeal.
+Need to come up with more ways to represent tracking and make
+good slideshows. Some functions compare before and after canny edge
+detection.
+"""
+
 import cv2 as cv
 import numpy as np
 from matplotlib import pyplot as plt
@@ -110,3 +119,18 @@ def compare_frames():
     cv.imshow('side by side', concat_image)
     cv.waitKey(0)
     cv.destroyAllWindows()
+
+
+# Compare frames
+# spots = []
+# # compare_frames()
+# input = r'C:\Users\bensc\PycharmProjects\scikit\to_image\count von count\count_von_count.png'
+# # input = r'C:\Users\bensc\PycharmProjects\scikit\to_image\count von count\image-001.png'
+# # output = r'C:\Users\bensc\PycharmProjects\scikit\to_image\count von count\image-001_50_150.png'
+# output = r'C:\Users\bensc\PycharmProjects\scikit\to_image\count von count\count_von_count_out50_150.png'
+# img = cv.imread(input, cv.IMREAD_GRAYSCALE)
+# img_copy = img.copy()
+# img_copy = cv.cvtColor(img_copy, cv.COLOR_GRAY2RGB)
+# canny_img = cv.Canny(img, 50, 150)
+# cv.imwrite(output, canny_img)
+# # original_vs_canny()
