@@ -29,12 +29,14 @@ import os
 
 from tracking import tracking, export_to_csv
 
+
 def get_frames():
     # Retrieves paths of frames from a directory as a list
     parent_dir = r"C:\Users\bensc\PycharmProjects\scikit\to_image\img\\"
     input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
     frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
     return frames
+
 
 # Make ROI
 roi_x = 30
