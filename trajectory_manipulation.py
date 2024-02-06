@@ -13,9 +13,9 @@ fig, ax = plt.subplots()
 
 def update_plot(i):
     ax.clear()  # Clear the previous plot
+    ax.invert_yaxis()
     ax.scatter(df['x_pos'][:i+1], df['y_pos'][:i+1])  # Plot x and y up to frame i
     ax.set_title(f'Time: {df["most_recent_frame"][i]}')  # Set title with corresponding time
-    ax.invert_yaxis()
     ax.axhline(y=70, color='blue', linestyle='-')
     ax.axhline(y=460, color='red', linestyle='--')
     ax.axhline(y=780, color='blue', linestyle='-')
@@ -44,6 +44,3 @@ plt.ylabel(yaxis, fontdict = font)
 anim = FuncAnimation(fig, update_plot, frames=len(df), interval=100)
 
 plt.show()
-
-
-# TODO: Figure out how to track trajectories from entire video. Not just finishing positions
