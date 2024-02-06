@@ -6,6 +6,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
     overlay_frames = []
     active_ids = {}
     object_final_position = []
+    active_id_trajectory = []
     FONT = cv.FONT_HERSHEY_SIMPLEX
     roi_x, roi_y, roi_h, roi_w = ROI
     threshold_distance = 50
@@ -15,7 +16,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
 
     for frame_index, frame in enumerate(frames):
         objects, img_copy = detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower)
-
+        active_id_trajectory.extend(objects)
         # Remove IDs of objects that have moved off the screen
         for obj_id, tracked_obj in list(active_ids.items()):
             tracked_obj.object_id = obj_id
@@ -56,15 +57,14 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
         if draw_ROI:
             cv.rectangle(img_copy, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255,0,0), 2)
 
+        # Add frames together into a list
         overlay_frames.append(img_copy)
 
     if save_overlay:
         for idx, overlay_frame in enumerate(overlay_frames):
             save_path = output_path + f"{idx}.png"
             cv.imwrite(save_path, overlay_frame)
-        return overlay_frames, object_final_position
-    else:
-        return overlay_frames, object_final_position
+    return overlay_frames, object_final_position, active_id_trajectory
 
 
 def export_to_csv(object_history, csv_filename):
