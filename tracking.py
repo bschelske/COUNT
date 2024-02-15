@@ -55,7 +55,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
 
         # Draw ROI on every frame
         if draw_ROI:
-            cv.rectangle(img_copy, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255,0,0), 2)
+            cv.rectangle(img_copy, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255, 0, 0), 2)
 
         # Add frames together into a list
         overlay_frames.append(img_copy)
@@ -171,7 +171,8 @@ def detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower):
         if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
             if cv.contourArea(cnt, True) > 0:
                 area_contours.append(
-                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index, DEP_outlet=None))
+                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
+                                   DEP_outlet=None))
             else:
                 pass
         else:
