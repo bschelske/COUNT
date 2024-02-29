@@ -25,6 +25,7 @@ ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
 
 """
 import cv2 as cv
+from nd2reader import ND2Reader
 import os
 
 from tracking import tracking, export_to_csv
@@ -38,6 +39,13 @@ def get_frames():
     return frames
 
 
+def get_frames_from_nd2(nd2_file_path):
+    # Retrieves paths of frames from a nd2 file as a list
+    with ND2Reader(nd2_file_path) as nd2_frames:
+        converted_frames = [(image / image.max() * 255).astype('uint8') for image in nd2_frames]
+        return converted_frames
+
+
 # Make ROI
 roi_x = 30
 roi_y = 70
@@ -49,7 +57,8 @@ ROI = (roi_x, roi_y, roi_h, roi_w)
 spots = [(266, 673, 20, 20), (291, 184, 25, 25), (250, 824, 10, 10)]
 
 # Load frames
-frames = get_frames()
+# frames = get_frames()
+frames = get_frames_from_nd2(nd2_file_path="nd2_files/23Feb2024 Non RosetteSep 5kHz.nd2")
 
 # Declare output path
 output_path = "to_image/tracking/frame_"
@@ -64,11 +73,11 @@ overlay_frames, object_final_position, active_id_trajectory = tracking(frames, o
                                                                        save_overlay=False)
 
 # Create csv file from tracking info
-csv_filename = "to_image/tracking/final_position_results.csv"
+csv_filename = "results/final_position_results.csv"
 export_to_csv(object_final_position, csv_filename)
 
 # Create csv file from tracking info
-csv_filename = "to_image/tracking/active_id_trajectory.csv"
+csv_filename = "results/active_id_trajectory.csv"
 export_to_csv(active_id_trajectory, csv_filename)
 
 # ffmpeg to video code
