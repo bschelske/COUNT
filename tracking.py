@@ -62,7 +62,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
 
     if save_overlay:
         for idx, overlay_frame in enumerate(overlay_frames):
-            save_path = output_path + f"{idx}.png"
+            save_path = output_path + f"{idx:03d}.png"
             cv.imwrite(save_path, overlay_frame)
     return overlay_frames, object_final_position, active_id_trajectory
 
