@@ -32,7 +32,7 @@ from tracking import tracking, export_to_csv
 
 def get_frames():
     # Retrieves paths of frames from a directory as a list
-    parent_dir = r"C:\Users\bensc\PycharmProjects\scikit\to_image\img\\"
+    parent_dir = "to_image/img"
     input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
     frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
     return frames
@@ -52,7 +52,7 @@ spots = [(266, 673, 20, 20), (291, 184, 25, 25), (250, 824, 10, 10)]
 frames = get_frames()
 
 # Declare output path
-output_path = r"C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\frame_"
+output_path = "to_image/tracking/frame_"
 
 # Canny Thresholding values:
 canny_lower = 200
@@ -64,11 +64,11 @@ overlay_frames, object_final_position, active_id_trajectory = tracking(frames, o
                                                                        save_overlay=False)
 
 # Create csv file from tracking info
-csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\final_position_results.csv'
+csv_filename = "to_image/tracking/final_position_results.csv"
 export_to_csv(object_final_position, csv_filename)
 
 # Create csv file from tracking info
-csv_filename = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\active_id_trajectory.csv'
+csv_filename = "to_image/tracking/active_id_trajectory.csv"
 export_to_csv(active_id_trajectory, csv_filename)
 
 # ffmpeg to video code
