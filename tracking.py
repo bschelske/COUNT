@@ -42,7 +42,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
                     break
 
             if not match_found and obj.object_id is None:
-                if obj.enters_from_left(roi_x):
+                if obj.enters_from_left(roi_x, roi_w):
                     obj.object_id = next_id
                     obj.most_recent_frame = frame_index  # Set last frame detected
                     active_ids[next_id] = obj
@@ -103,8 +103,8 @@ class DetectedObject:
     def update_position(self, new_position):
         self.position = new_position
 
-    def enters_from_left(self, roi_x):
-        if roi_x < self.position[0] < roi_x + 60:
+    def enters_from_left(self, roi_x, roi_w):
+        if roi_x < self.position[0] < roi_x + roi_w:
             return True
         else:
             return False

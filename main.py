@@ -54,50 +54,11 @@ def nd2_to_png(nd2_file_path):
         print("nd2 converted to png")
 
 
-def background_subtraction(frames, output_path="background_subtraction/"):
-    first_frame = frames[0]
-    background_subtracted_frames = []
-    frame_index = 0
-    for frame in frames:
-        # Perform background subtraction by subtracting the first frame
-        background_subtracted_frame = cv.absdiff(frame, first_frame)
-
-        # Store the background-subtracted frame
-        background_subtracted_frames.append(background_subtracted_frame)
-        image_path = f"{output_path}frame_{frame_index:03d}.png"
-        cv.imwrite(image_path, background_subtracted_frame)
-        frame_index += 1
-
-    return background_subtracted_frames
-
-
-def nd2_background_subtraction(nd2_file_path, output_path="background_subtraction/"):
-    first_frame = None
-    background_subtracted_frames = []
-    with ND2Reader(nd2_file_path) as nd2_file:
-        # Print metadata
-        print("Metadata:")
-        print(nd2_file.metadata)
-        for frame_index in range(len(nd2_file)):
-            frame_data = nd2_file[frame_index]
-            if first_frame is None:
-                first_frame = frame_data
-                # first_frame = cv.GaussianBlur(first_frame,(5,5),0)
-
-            # Perform background subtraction by subtracting the first frame
-            background_subtracted_frame = cv.absdiff(frame_data, first_frame)
-            normalized_frame = cv.normalize(background_subtracted_frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-            image_path = f"{output_path}frame_{frame_index:03d}.png"
-            cv.imwrite(image_path, normalized_frame)
-            print(f"{image_path} saved")
-        return background_subtracted_frames
-
-
 # Make ROI
 roi_x = 10
 roi_y = 0
 roi_h = 2048
-roi_w = 50
+roi_w = 400
 ROI = (roi_x, roi_y, roi_h, roi_w)
 
 # spot in spots = (x,y,w,h)
