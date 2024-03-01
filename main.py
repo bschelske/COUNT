@@ -27,8 +27,12 @@ ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
 import cv2 as cv
 from nd2reader import ND2Reader
 import os
+import tempfile
+import shutil
+
 
 from tracking import tracking, export_to_csv
+from background_subtraction import nd2_background_subtraction
 
 
 def get_frames(parent_dir):
@@ -54,55 +58,58 @@ def nd2_to_png(nd2_file_path):
         print("nd2 converted to png")
 
 
-# Make ROI
+# Parameters for tracking function
 roi_x = 10
 roi_y = 0
 roi_h = 2048
 roi_w = 400
 ROI = (roi_x, roi_y, roi_h, roi_w)
-
-# spot in spots = (x,y,w,h)
-# spots = [(266, 673, 20, 20), (291, 184, 25, 25), (250, 824, 10, 10)]
-spots = []
-
-# Convert nd2 file to png files and store into a folder
-nd2_file_path = "nd2_files/23Feb2024 Non RosetteSep 5kHz.nd2"
-# nd2_to_png(nd2_file_path)
-# print('subtract_frames')
-# nd2_background_subtraction(nd2_file_path)
-
-# Load frames. Frames must be in a folder
-# frame_directory = "nd2_to_png/"
-frame_directory = "background_subtraction/"
-print(f'Getting frames from {frame_directory}')
-frames = get_frames(parent_dir=frame_directory)
-
-# Declare output path
-output_path = "nd2_results/frame_"
-
-# Canny Thresholding values:
+spots = []  # spot in spots = (x,y,w,h)
+output_path = "nd2_results/frame_"  # If overlay = true, save here
 canny_lower = 255 // 3
 canny_upper = 255
 
-# Perform tracking
-print("Tracking")
-overlay_frames, object_final_position, active_id_trajectory = tracking(frames, output_path, ROI, spots, canny_upper,
-                                                                       canny_lower, draw_ROI=True,
-                                                                       save_overlay=True)
-print("Creating csv files")
-# Create csv file from tracking info
-csv_filename = "results/final_position_results.csv"
-export_to_csv(object_final_position, csv_filename)
-print(f"{csv_filename} saved")
+#
+# brittanys_path = "Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/"
+# brittanys_files = [os.path.join(brittanys_path, f) for f in os.listdir(brittanys_path)]
+brittanys_files = ['Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 100kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 105kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 10kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 110kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 115kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 120kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 125kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 130kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 135kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 140kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 145kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 150kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 155kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 15kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 160kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 165kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 170kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 170kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 175kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 180kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 185kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 190kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 195kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 200kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 20kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 25kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 30kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 35kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 40kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 45kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 50kHz..nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 55kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 5kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 60kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 65kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 70kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 75kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 80kHz..nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 85kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 90kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 95kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 100kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 105kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 10kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 110kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 115kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 120kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 125kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 130kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 135kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 140kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 145kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 150kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 155kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 15kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 160kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 165kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 170kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 175kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 180kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 190kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 195kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 200kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 20kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 25kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 30kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 35kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 40kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 45kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 50kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 55kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 5kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 60kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 65kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 70kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 75kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 80kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 85kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 90kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 95kHz.nd2']
 
-# Create csv file from tracking info
-csv_filename = "results/active_id_trajectory.csv"
-export_to_csv(active_id_trajectory, csv_filename)
-print(f"{csv_filename} saved")
+
+for index, nd2_file in enumerate(brittanys_files):
+    print(f"Processing file {index + 1} of {len(brittanys_files)} in brittanys files: {nd2_file}")
+    # Get the filename from brittany's files
+    file_name = os.path.basename(nd2_file[:-4])
+
+    # Make temp folder for images
+    temp_dir = tempfile.mkdtemp()
+    print("Temporary directory created:", temp_dir)
+
+    # Convert nd2 file to png files and store into a folder
+    nd2_background_subtraction(nd2_file, temp_dir)  # save to temp
+
+    # Load frames from temp
+    frame_directory = temp_dir
+    print(f'Getting frames from {frame_directory}')
+    frames = get_frames(parent_dir=frame_directory)
+
+    # Perform tracking
+    print("Tracking")
+    overlay_frames, object_final_position, active_id_trajectory = tracking(frames, output_path, ROI, spots, canny_upper,
+                                                                           canny_lower, draw_ROI=False,
+                                                                           save_overlay=False)
+    print("Creating csv files")
+    # Create csv file from tracking info
+    csv_filename = f"results/{file_name}_results.csv"
+    export_to_csv(object_final_position, csv_filename)
+    print(f"{csv_filename} saved")
+
+    # # Create csv file from tracking info
+    # csv_filename = f"results/active_id_trajectory.csv"
+    # export_to_csv(active_id_trajectory, csv_filename)
+    # print(f"{csv_filename} saved")
+
+    shutil.rmtree(temp_dir)
+    print("Temporary directory deleted:", temp_dir)
 
 # ffmpeg to video code
 # ffmpeg -framerate 10 -i frame_%d.png tracking.mp4
-
-# TODO: workout inconsistencies in labeling
-# TODO: ROI, contour ROI inconsistency
-# TODO: Work on fine tuning parameters
