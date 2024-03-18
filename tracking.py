@@ -1,5 +1,7 @@
+import os
 import cv2 as cv
 import csv
+from nd2reader import ND2Reader
 
 
 def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False, save_overlay=False):
@@ -179,3 +181,26 @@ def detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower):
             pass
 
     return area_contours, img_copy
+
+
+def get_frames(parent_dir):
+    # Retrieves paths of frames from a directory as a list
+    input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
+    frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
+    return frames
+
+
+def nd2_to_png(nd2_file_path, output_path, normalize=False):
+    with ND2Reader(nd2_file_path) as nd2_file:
+        # Print metadata
+        print("Metadata:")
+        print(nd2_file.metadata)
+        for frame_index in range(len(nd2_file)):
+            # Read frame data
+            frame_data = nd2_file[frame_index]
+            if normalize:
+                frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+            converted_path = f"{output_path}frame_{frame_index:03d}.png"
+            cv.imwrite(converted_path, frame_data)
+            print(f"{converted_path} saved", end='\r')
+        print("nd2 converted to png")

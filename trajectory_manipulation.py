@@ -2,11 +2,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
-# csv_file = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\final_position_results.csv'
+csv_file = r'C:\Users\bensc\PycharmProjects\scikit\to_image\tracking\final_position_results.csv'
 
 csv_file = "to_image/tracking/active_id_trajectory.csv"
 df = pd.read_csv(csv_file)
-# df = df.drop_duplicates()
+df = df.drop_duplicates()
 
 print(df)
 fig, ax = plt.subplots()

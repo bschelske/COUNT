@@ -24,39 +24,11 @@ ffmpeg -ss 0 -t 1 -i 50_kHz.mp4 image-%03d.png
 ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
 
 """
-import cv2 as cv
-from nd2reader import ND2Reader
 import os
 import tempfile
 import shutil
-
-
-from tracking import tracking, export_to_csv
+from tracking import tracking, export_to_csv, get_frames
 from background_subtraction import nd2_background_subtraction
-
-
-def get_frames(parent_dir):
-    # Retrieves paths of frames from a directory as a list
-    input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
-    frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
-    return frames
-
-
-def nd2_to_png(nd2_file_path):
-    with ND2Reader(nd2_file_path) as nd2_file:
-        # Print metadata
-        print("Metadata:")
-        print(nd2_file.metadata)
-        for frame_index in range(len(nd2_file)):
-            # Read frame data
-            frame_data = nd2_file[frame_index]
-            normalized_frame = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-            image_path = f"nd2_to_png/frame_{frame_index:03d}.png"
-            cv.imwrite(image_path, normalized_frame)
-            print(f"{image_path} saved", end='\r')
-            frames.append(normalized_frame)
-        print("nd2 converted to png")
-
 
 # Parameters for tracking function
 roi_x = 10
@@ -73,7 +45,7 @@ canny_upper = 255
 # brittanys_path = "Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/"
 # brittanys_files = [os.path.join(brittanys_path, f) for f in os.listdir(brittanys_path)]
 brittanys_files = ['Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 100kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 105kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 10kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 110kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 115kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 120kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 125kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 130kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 135kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 140kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 145kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 150kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 155kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 15kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 160kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 165kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 170kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 170kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 175kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 180kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 185kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 190kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 195kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 200kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 20kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 25kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 30kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 35kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 40kHz001.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 45kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 50kHz..nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 55kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 5kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 60kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 65kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 70kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 75kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 80kHz..nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 85kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 90kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 95kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 100kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 105kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 10kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 110kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 115kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 120kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 125kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 130kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 135kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 140kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 145kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 150kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 155kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 15kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 160kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 165kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 170kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 175kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 180kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 190kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 195kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 200kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 20kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 25kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 30kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 35kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 40kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 45kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 50kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 55kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 5kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 60kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 65kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 70kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 75kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 80kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 85kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 90kHz.nd2', 'Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 RosetteSep 95kHz.nd2']
-
+brittanys_files = ['Z:/Brittany/CF-DEP/CF-DEP Blood 23Feb2024/23Feb2024 Non RosetteSep 5kHz.nd2']
 
 for index, nd2_file in enumerate(brittanys_files):
     print(f"Processing file {index + 1} of {len(brittanys_files)} in brittanys files: {nd2_file}")
@@ -113,3 +85,6 @@ for index, nd2_file in enumerate(brittanys_files):
 
 # ffmpeg to video code
 # ffmpeg -framerate 10 -i frame_%d.png tracking.mp4
+
+# TODO: diagnose overcounting
+# TODO: GPU acceleration :)
