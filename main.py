@@ -13,16 +13,6 @@ thresholding on the gradient magnitude.
 The Canny has three adjustable parameters: the width of the Gaussian (the
 noisier the image, the greater the width), and the low and high threshold for
 the hysteresis thresholding.
-
-Ben: ffmpeg code
-cd  PycharmProjects\scikit\to_image
-
-ffmpeg -i 50_kHz.mp4 -vf fps=1 image-%03d.png
-convert to images until 1 second into video
-ffmpeg -ss 0 -t 1 -i 50_kHz.mp4 image-%03d.png
-
-ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
-
 """
 import os
 import tempfile
@@ -42,12 +32,13 @@ except ValueError as e:
 ROI = app.get_roi()
 input_file_path = app.file_path
 input_folder_path = app.folder_path.get()
+canny_lower = app.canny_lower.get()
+canny_upper = app.canny_upper.get()
+
 
 # # Parameters for tracking function
 spots = []  # spot in spots = (x,y,w,h)
 output_path = "nd2_results/frame_"  # If overlay = true, save here
-canny_lower = 255 // 3
-canny_upper = 255
 
 if input_folder_path:
     files = [os.path.join(input_folder_path, f) for f in os.listdir(input_folder_path)]
