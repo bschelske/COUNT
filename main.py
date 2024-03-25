@@ -29,13 +29,17 @@ import tempfile
 import shutil
 from tracking import tracking, export_to_csv, get_frames
 from background_subtraction import nd2_background_subtraction
+from ui import create_UI
 
-# Parameters for tracking function
-roi_x = 10
-roi_y = 0
-roi_h = 2048
-roi_w = 400
-ROI = (roi_x, roi_y, roi_h, roi_w)
+app = create_UI()
+ROI = app.get_roi()
+
+# # Parameters for tracking function
+# roi_x = 10
+# roi_y = 0
+# roi_h = 2048
+# roi_w = 400
+# ROI = (roi_x, roi_y, roi_h, roi_w)
 spots = []  # spot in spots = (x,y,w,h)
 output_path = "nd2_results/frame_"  # If overlay = true, save here
 canny_lower = 255 // 3
