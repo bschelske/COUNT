@@ -12,6 +12,7 @@ class ROISelectionApp:
         self.roi_width = tk.StringVar(value="400")    # Default value for ROI Width
         self.canny_upper = tk.StringVar(value="255")  # Default value for ROI Height
         self.canny_lower = tk.StringVar(value="85")    # Default value for ROI Width
+        self.save_overlay = tk.IntVar()
 
         self.create_widgets()
 
@@ -56,9 +57,13 @@ class ROISelectionApp:
         self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
         self.canny_lower_entry.grid(row=3, column=3, padx=5, pady=5)
 
+        # Save overlay checkbox
+        self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay, command=self.on_checkbox_click)
+        self.save_overlay_checkbox.grid(row=6, column=0, columnspan=1, padx=5, pady=5)
+
         # Button to confirm selections
         self.confirm_button = tk.Button(self.master, text="Confirm", command=self.confirm_selections)
-        self.confirm_button.grid(row=6, column=1, columnspan=2, padx=5, pady=5)
+        self.confirm_button.grid(row=6, column=2, columnspan=2, padx=5, pady=5)
 
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
@@ -67,6 +72,12 @@ class ROISelectionApp:
     def choose_folder(self):
         self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
         print("Selection:", self.folder_path.get())
+
+    def on_checkbox_click(self):
+        if self.save_overlay.get() == 1:
+            print("An overlay of tracked objects will be saved!")
+        else:
+            print("An overlay of tracked objects will not be saved")
 
     def confirm_selections(self):
         print("ROI X:", self.roi_x.get())
