@@ -17,4 +17,6 @@ ffmpeg -ss 0 -t 1 -i 50_kHz.mp4 image-%03d.png
 
 ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
 
+ffmpeg -framerate 10 -i frame_%d.png tracking.mp4
+
 
