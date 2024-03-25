@@ -52,18 +52,27 @@ class ROISelectionApp:
 
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
-        print("File chosen:", self.file_path)
+        print("Selection:", self.file_path)
 
     def choose_folder(self):
         self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
-        print("Folder chosen:", self.folder_path.get())
+        print("Selection:", self.folder_path.get())
 
     def confirm_selections(self):
-        print("Folder Path:", self.folder_path.get())
         print("ROI X:", self.roi_x.get())
         print("ROI Y:", self.roi_y.get())
         print("ROI Height:", self.roi_height.get())
         print("ROI Width:", self.roi_width.get())
+
+        # Close the Tkinter window
+        self.master.destroy()
+
+    def error_handling(self):
+        if self.file_path == '' and self.folder_path.get() == '':
+            raise ValueError("You didn't pick anything!")
+        if self.file_path and self.folder_path.get():
+            raise ValueError(
+                "...Why did you pick a file AND a folder? Choose ONE or the OTHER. What did you expect to happen? :)")
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
@@ -74,4 +83,5 @@ def create_UI():
     root.title("Object Detection")
     app = ROISelectionApp(root)
     root.mainloop()
+    app.error_handling()
     return app
