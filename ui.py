@@ -114,12 +114,12 @@ class ROISelectionApp:
         self.input_handling()
 
         print(".csv results save path:", self.csv_folder_path.get())
-        print("ROI X:", self.roi_x.get())
-        print("ROI Y:", self.roi_y.get())
-        print("ROI Height:", self.roi_height.get())
-        print("ROI Width:", self.roi_width.get())
-        print("Canny Upper:", self.canny_upper.get())
-        print("Canny Lower:", self.canny_lower.get())
+        # print("ROI X:", self.roi_x.get())
+        # print("ROI Y:", self.roi_y.get())
+        # print("ROI Height:", self.roi_height.get())
+        # print("ROI Width:", self.roi_width.get())
+        # print("Canny Upper:", self.canny_upper.get())
+        # print("Canny Lower:", self.canny_lower.get())
         # Close the Tkinter window
         self.master.destroy()
 
@@ -135,6 +135,7 @@ class ROISelectionApp:
             print("Choose a file first!")
         else:
             self.input_handling()
+
         with ND2Reader(self.files[0]) as nd2_file:
             frame_data = nd2_file[0]
             image = frame_data
@@ -143,8 +144,8 @@ class ROISelectionApp:
             cv2.destroyAllWindows()
             self.roi_x.set(ROI[0])
             self.roi_y.set(ROI[1])
-            self.roi_height.set(ROI[2])
-            self.roi_width.set(ROI[3])
+            self.roi_width.set(ROI[2])
+            self.roi_height.set(ROI[3])
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
@@ -155,20 +156,9 @@ class ROISelectionApp:
         quit(2)
 
 
-
 def create_UI():
     root = tk.Tk()
     root.title("Object Detection")
     app = ROISelectionApp(root)
     root.mainloop()
-    # app.error_handling()
     return app
-
-# def preview_roi(image_path):
-#     image = cv2.imread(image_path, 0)  # read image as grayscale
-#     ROI = cv2.selectROI(image)
-#     cv2.destroyAllWindows()
-#     return ROI
-
-
-# preview_roi(r'C:\Users\bensc\PycharmProjects\scikit\to_image\img\image-001.png')

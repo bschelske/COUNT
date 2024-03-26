@@ -36,7 +36,6 @@ canny_lower = app.canny_lower.get()
 canny_upper = app.canny_upper.get()
 save_overlay = app.save_overlay.get()
 
-
 # Additional parameters for tracking function
 # Spots are rectangular regions to be ignored in tracking. (likely obsolete with inclusion of background subtraction)
 spots = []  # spot in spots = (x,y,w,h)
