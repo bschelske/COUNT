@@ -7,6 +7,7 @@ track cells that flow through a CF-DEP device. Cell response to DEP is recorded 
 
 ## Features
 - Object detection and tracking in video frames or .nd2 files.
+- Background subtraction
 - Exporting tracking data to a CSV file.
 - User interface 
 
