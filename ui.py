@@ -17,6 +17,8 @@ class ROISelectionApp:
         self.roi_width = tk.IntVar(value=400)    # Default value for ROI Width
         self.canny_upper = tk.IntVar(value=255)  # Default value for ROI Height
         self.canny_lower = tk.IntVar(value=85)    # Default value for ROI Width
+        self.max_centroid_distance = tk.IntVar(value=50)  # max distance an object will travel between frames
+        self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost
         self.save_overlay = tk.IntVar()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
 
@@ -71,6 +73,16 @@ class ROISelectionApp:
         tk.Label(self.master, text="Canny Lower:").grid(row=3, column=2, padx=5, pady=5)
         self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
         self.canny_lower_entry.grid(row=3, column=3, padx=5, pady=5)
+
+        # Max Centroid Distance
+        tk.Label(self.master, text="Max Centroid Distance:").grid(row=4, column=2, padx=5, pady=5)
+        self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
+        self.max_centroid_distance_entry.grid(row=4, column=3, padx=5, pady=5)
+
+        # Timeout threshold
+        tk.Label(self.master, text="Timeout Threshold (frames):").grid(row=5, column=2, padx=5, pady=5)
+        self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
+        self.timeout_entry.grid(row=5, column=3, padx=5, pady=5)
 
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay, command=self.on_checkbox_click)

@@ -4,16 +4,14 @@ import csv
 from nd2reader import ND2Reader
 
 
-def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI=False, save_overlay=False):
+def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, max_centroid_distance, timeout, draw_ROI=False, save_overlay=False):
     overlay_frames = []
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
     FONT = cv.FONT_HERSHEY_SIMPLEX
     roi_x, roi_y, roi_h, roi_w = ROI
-    threshold_distance = 50
     img_h, img_w = frames[0].shape
-    timeout_threshold = 7 * 1  # Frames
     next_id = 1
 
     for frame_index, frame in enumerate(frames):
@@ -26,7 +24,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
                 tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
                 object_final_position.append(tracked_obj)
                 del active_ids[obj_id]
-            elif frame_index - tracked_obj.most_recent_frame > timeout_threshold:
+            elif frame_index - tracked_obj.most_recent_frame > timeout:
                 tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
                 object_final_position.append(tracked_obj)
                 del active_ids[obj_id]  # Expire IDs if no new position found
@@ -37,7 +35,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, draw_ROI
             for obj_id, tracked_obj in active_ids.items():
                 tracked_obj.object_id = obj_id
                 distance = calculate_distance(obj, tracked_obj)
-                if distance < threshold_distance and obj.position[0] > tracked_obj.position[0]:
+                if distance < max_centroid_distance and obj.position[0] > tracked_obj.position[0]:
                     tracked_obj.object_id = obj.object_id
                     tracked_obj.most_recent_frame = frame_index  # Update last frame detected
                     match_found = True
