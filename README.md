@@ -38,7 +38,7 @@ ratio works well.
 
 "Timeout Threshold (frames)" is the amount of time before a labeled object is considered gone. Sometimes, the object 
 being tracked will be lost by the algorithm. This value is how long the algorithm will continue looking for an 
-object before giving up. For example, if an object is labeled with ID = 3 and dissapears for a frame, thats OK because 
+object before giving up. For example, if an object is labeled with ID = 3 and disappears for a frame, that's OK because 
 the 
 timeout is 
 longer 
