@@ -17,7 +17,7 @@ the hysteresis thresholding.
 import os
 import tempfile
 import shutil
-from tracking import tracking, export_to_csv, get_frames
+import tracking
 from background_subtraction import nd2_background_subtraction
 import ui
 
@@ -55,18 +55,18 @@ for index, nd2_file in enumerate(app.files):
     # Load png files from temp folder
     frame_directory = temp_dir
     print(f'Getting frames from {frame_directory}')
-    frames = get_frames(parent_dir=frame_directory)
+    frames = tracking.get_frames(parent_dir=frame_directory)
 
     # Perform tracking
     print("Tracking...")
-    overlay_frames, object_final_position, active_id_trajectory = tracking(frames, output_path, ROI, spots, canny_upper,
-                                                                           canny_lower, draw_ROI=False,
-                                                                           save_overlay=save_overlay)
+    overlay_frames, object_final_position, active_id_trajectory = tracking.tracking(frames, output_path, ROI, spots, canny_upper,
+                                                                                    canny_lower, draw_ROI=False,
+                                                                                    save_overlay=save_overlay)
 
     # Create csv file from tracking info
     print("Creating csv files")
     csv_filename = f"{app.csv_folder_path.get()}{file_name}_results.csv"
-    export_to_csv(object_final_position, csv_filename)
+    tracking.export_to_csv(active_id_trajectory, csv_filename)
     print(f"{csv_filename} saved")
 
     # # Create csv file from tracking info
