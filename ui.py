@@ -138,9 +138,13 @@ class ROISelectionApp:
         with ND2Reader(self.files[0]) as nd2_file:
             frame_data = nd2_file[0]
             image = frame_data
-            ROI = cv2.selectROI(image, cv2.WINDOW_NORMAL)
+            cv2.namedWindow("Select ROI. Press enter to confirm, 'c' to cancel", cv2.WINDOW_NORMAL)
+            ROI = cv2.selectROI("Select ROI. Press enter to confirm, 'c' to cancel", image, cv2.WINDOW_NORMAL)
             cv2.destroyAllWindows()
-        return ROI
+            self.roi_x.set(ROI[0])
+            self.roi_y.set(ROI[1])
+            self.roi_height.set(ROI[2])
+            self.roi_width.set(ROI[3])
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
