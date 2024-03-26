@@ -2,6 +2,8 @@ import cv2 as cv
 from nd2reader import ND2Reader
 import tempfile
 import shutil
+
+
 def background_subtraction(frames, output_path="background_subtraction/"):
     first_frame = frames[0]
     background_subtracted_frames = []
@@ -26,6 +28,7 @@ def nd2_background_subtraction(nd2_file_path, output_path="background_subtractio
         # Print metadata
         print("Metadata:")
         print(nd2_file.metadata)
+        print(nd2_file)
         for frame_index in range(len(nd2_file)):
             frame_data = nd2_file[frame_index]
             if first_frame is None:

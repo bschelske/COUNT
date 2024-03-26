@@ -36,25 +36,17 @@ canny_lower = app.canny_lower.get()
 canny_upper = app.canny_upper.get()
 save_overlay = app.save_overlay.get()
 
+
 # Additional parameters for tracking function
 # Spots are rectangular regions to be ignored in tracking. (likely obsolete with inclusion of background subtraction)
 spots = []  # spot in spots = (x,y,w,h)
 output_path = "nd2_results/frame_"  # If overlay = true, save here
 
-# Input handling
-if input_folder_path:
-    files = [os.path.join(input_folder_path, f) for f in os.listdir(input_folder_path)]
-if input_file_path:
-    files = input_file_path
-
 # Iterate through all input files
-for index, nd2_file in enumerate(files):
-    print(f"Processing file {index + 1} of {len(files)}: {nd2_file}")
-    # Get the filename from file
-    file_name = os.path.basename(nd2_file[:-4])
-
-    # Make temp folder for images
-    temp_dir = tempfile.mkdtemp()
+for index, nd2_file in enumerate(app.files):
+    print(f"Processing file {index + 1} of {len(app.files)}: {nd2_file}")
+    file_name = os.path.basename(nd2_file[:-4])  # Get the filename from file
+    temp_dir = tempfile.mkdtemp()  # Make temp folder for images
     print("Temporary directory created:", temp_dir)
 
     # Convert nd2 file to png files and store into the temp folder
@@ -73,7 +65,7 @@ for index, nd2_file in enumerate(files):
 
     # Create csv file from tracking info
     print("Creating csv files")
-    csv_filename = f"results/{file_name}_results.csv"
+    csv_filename = f"{app.csv_folder_path.get()}{file_name}_results.csv"
     export_to_csv(object_final_position, csv_filename)
     print(f"{csv_filename} saved")
 

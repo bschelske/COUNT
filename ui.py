@@ -1,31 +1,41 @@
 import tkinter as tk
 from tkinter import filedialog
+import cv2
+import os
+import numpy as np
 
 class ROISelectionApp:
     def __init__(self, master):
         self.master = master
         self.file_path = ""
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
-        self.roi_x = tk.StringVar(value="10")  # Default value for ROI X
-        self.roi_y = tk.StringVar(value="0")   # Default value for ROI Y
-        self.roi_height = tk.StringVar(value="2048")  # Default value for ROI Height
-        self.roi_width = tk.StringVar(value="400")    # Default value for ROI Width
-        self.canny_upper = tk.StringVar(value="255")  # Default value for ROI Height
-        self.canny_lower = tk.StringVar(value="85")    # Default value for ROI Width
+        self.csv_folder_path = tk.StringVar(value="results/") # Default csv save path
+        self.roi_x = tk.IntVar(value=10)  # Default value for ROI X
+        self.roi_y = tk.IntVar(value=0)   # Default value for ROI Y
+        self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
+        self.roi_width = tk.IntVar(value=400)    # Default value for ROI Width
+        self.canny_upper = tk.IntVar(value=255)  # Default value for ROI Height
+        self.canny_lower = tk.IntVar(value=85)    # Default value for ROI Width
         self.save_overlay = tk.IntVar()
+        self.files = []  # Empty list that will accept an individual file, or files from a folder
 
         self.create_widgets()
 
     def create_widgets(self):
         # File selection button
-        tk.Label(self.master, text="For individual file").grid(row=0, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For individual .nd2 file").grid(row=0, column=0, padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
         self.file_button.grid(row=0, column=1, padx=5, pady=5)
 
         # Folder selection button
-        tk.Label(self.master, text="For files in a folder").grid(row=1, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For .nd2 files in a folder").grid(row=1, column=0, padx=5, pady=5)
         self.folder_button = tk.Button(self.master, text="Choose Folder", command=self.choose_folder)
         self.folder_button.grid(row=1, column=1, padx=5, pady=5)
+
+        # csv output folder selection button
+        tk.Label(self.master, text="Choose .csv save path").grid(row=0, column=2, padx=5, pady=5)
+        self.csv_button = tk.Button(self.master, text="Choose Folder", command=self.choose_csv_output)
+        self.csv_button.grid(row=0, column=3, padx=5, pady=5)
 
         # ROI X input field
         tk.Label(self.master, text="ROI X:").grid(row=2, column=0, padx=5, pady=5)
@@ -73,6 +83,10 @@ class ROISelectionApp:
         self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
         print("Selection:", self.folder_path.get())
 
+    def choose_csv_output(self):
+        self.csv_folder_path.set(filedialog.askdirectory())  # Set the selected folder path
+        print("csv save path:", self.csv_folder_path.get())
+
     def on_checkbox_click(self):
         if self.save_overlay.get() == 1:
             print("An overlay of tracked objects will be saved!")
@@ -80,22 +94,39 @@ class ROISelectionApp:
             print("An overlay of tracked objects will not be saved")
 
     def confirm_selections(self):
+        self.error_handling()
+
+        # Input handling
+        if self.folder_path.get():
+            self.files = [os.path.join(self.folder_path.get(), f) for f in os.listdir(self.folder_path.get())]
+        if self.file_path:
+            self.files = [self.file_path]
+
+        print(".csv results save path:", self.csv_folder_path.get())
         print("ROI X:", self.roi_x.get())
         print("ROI Y:", self.roi_y.get())
         print("ROI Height:", self.roi_height.get())
         print("ROI Width:", self.roi_width.get())
         print("Canny Upper:", self.canny_upper.get())
         print("Canny Lower:", self.canny_lower.get())
-
         # Close the Tkinter window
         self.master.destroy()
 
     def error_handling(self):
         if self.file_path == '' and self.folder_path.get() == '':
-            raise ValueError("You didn't pick anything!")
+            raise ValueError("No file selected!")
         if self.file_path and self.folder_path.get():
             raise ValueError(
                 "...Why did you pick a file AND a folder? Choose ONE or the OTHER. What did you expect to happen? :)")
+
+    def preview_roi(self):
+        if self.file_path == '' and self.folder_path.get() == '':
+            print("Choose a file first!")
+
+        image = cv2.imread(image_path, 0)  # read image as grayscale
+        ROI = cv2.selectROI(image)
+        cv2.destroyAllWindows()
+        return ROI
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
@@ -106,5 +137,19 @@ def create_UI():
     root.title("Object Detection")
     app = ROISelectionApp(root)
     root.mainloop()
-    app.error_handling()
+    # app.error_handling()
     return app
+
+
+def callback(x):
+    print(x)
+
+
+def preview_roi(image_path):
+    image = cv2.imread(image_path, 0)  # read image as grayscale
+    ROI = cv2.selectROI(image)
+    cv2.destroyAllWindows()
+    return ROI
+
+
+# preview_roi(r'C:\Users\bensc\PycharmProjects\scikit\to_image\img\image-001.png')
