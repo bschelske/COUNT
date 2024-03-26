@@ -4,7 +4,7 @@ C. O. U. N. T.
     Count objects until no tomorrow...
     By Ben
 ===================
-Check the readme on github for more information. https://github.com/bschelske/cell_tracking
+Check the readme on github for more information. https://github.com/bschelske/C.O.U.N.T.
     "Ah- ah- ah!"
 """
 import os
