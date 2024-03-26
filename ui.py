@@ -158,7 +158,8 @@ class ROISelectionApp:
 
 def create_UI():
     root = tk.Tk()
-    root.title("Object Detection")
+    root.iconbitmap(r'count.ico')
+    root.title("Count Objects Until No Tomorrow (C.O.U.N.T.)")
     app = ROISelectionApp(root)
     root.mainloop()
     return app
