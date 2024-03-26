@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog
 import cv2
 import os
+from nd2reader import ND2Reader
 import numpy as np
 
 class ROISelectionApp:
@@ -57,6 +58,10 @@ class ROISelectionApp:
         self.roi_width_entry = tk.Entry(self.master, textvariable=self.roi_width)
         self.roi_width_entry.grid(row=5, column=1, padx=5, pady=5)
 
+        # ROI Preview button
+        self.roi_button = tk.Button(self.master, text="Preview ROI", command=self.preview_roi)
+        self.roi_button.grid(row=6, column=0, padx=5, pady=5)
+
         # Canny Upper
         tk.Label(self.master, text="Canny Upper:").grid(row=2, column=2, padx=5, pady=5)
         self.canny_upper_entry = tk.Entry(self.master, textvariable=self.canny_upper)
@@ -69,11 +74,15 @@ class ROISelectionApp:
 
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay, command=self.on_checkbox_click)
-        self.save_overlay_checkbox.grid(row=6, column=0, columnspan=1, padx=5, pady=5)
+        self.save_overlay_checkbox.grid(row=6, column=1, columnspan=1, padx=5, pady=5)
 
         # Button to confirm selections
         self.confirm_button = tk.Button(self.master, text="Confirm", command=self.confirm_selections)
         self.confirm_button.grid(row=6, column=2, columnspan=2, padx=5, pady=5)
+
+        # Quit button
+        self.quit_button = tk.Button(self.master, text="Quit", command=self.quit_ui)
+        self.quit_button.grid(row=6, column=3, padx=5, pady=5)
 
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
@@ -93,14 +102,16 @@ class ROISelectionApp:
         else:
             print("An overlay of tracked objects will not be saved")
 
-    def confirm_selections(self):
-        self.error_handling()
-
+    def input_handling(self):
         # Input handling
         if self.folder_path.get():
             self.files = [os.path.join(self.folder_path.get(), f) for f in os.listdir(self.folder_path.get())]
         if self.file_path:
             self.files = [self.file_path]
+
+    def confirm_selections(self):
+        self.error_handling()
+        self.input_handling()
 
         print(".csv results save path:", self.csv_folder_path.get())
         print("ROI X:", self.roi_x.get())
@@ -122,15 +133,24 @@ class ROISelectionApp:
     def preview_roi(self):
         if self.file_path == '' and self.folder_path.get() == '':
             print("Choose a file first!")
-
-        image = cv2.imread(image_path, 0)  # read image as grayscale
-        ROI = cv2.selectROI(image)
-        cv2.destroyAllWindows()
+        else:
+            self.input_handling()
+        with ND2Reader(self.files[0]) as nd2_file:
+            frame_data = nd2_file[0]
+            image = frame_data
+            ROI = cv2.selectROI(image, cv2.WINDOW_NORMAL)
+            cv2.destroyAllWindows()
         return ROI
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
         return ROI
+
+    def quit_ui(self):
+        self.master.destroy()
+        quit(2)
+
+
 
 def create_UI():
     root = tk.Tk()
@@ -140,16 +160,11 @@ def create_UI():
     # app.error_handling()
     return app
 
-
-def callback(x):
-    print(x)
-
-
-def preview_roi(image_path):
-    image = cv2.imread(image_path, 0)  # read image as grayscale
-    ROI = cv2.selectROI(image)
-    cv2.destroyAllWindows()
-    return ROI
+# def preview_roi(image_path):
+#     image = cv2.imread(image_path, 0)  # read image as grayscale
+#     ROI = cv2.selectROI(image)
+#     cv2.destroyAllWindows()
+#     return ROI
 
 
 # preview_roi(r'C:\Users\bensc\PycharmProjects\scikit\to_image\img\image-001.png')
