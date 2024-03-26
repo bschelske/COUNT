@@ -1,18 +1,11 @@
 """
 ===================
-Canny edge detector
+C. O. U. N. T.
+    Count objects until no tomorrow...
+    By Ben
 ===================
-
-The Canny filter is a multi-stage edge detector. It uses a filter based on the
-derivative of a Gaussian in order to compute the intensity of the gradients.The
-Gaussian reduces the effect of noise present in the image. Then, potential
-edges are thinned down to 1-pixel curves by removing non-maximum pixels of the
-gradient magnitude. Finally, edge pixels are kept or removed using hysteresis
-thresholding on the gradient magnitude.
-
-The Canny has three adjustable parameters: the width of the Gaussian (the
-noisier the image, the greater the width), and the low and high threshold for
-the hysteresis thresholding.
+Check the readme on github for more information. https://github.com/bschelske/cell_tracking
+    "Ah- ah- ah!"
 """
 import os
 import tempfile

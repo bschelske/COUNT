@@ -10,6 +10,27 @@ track cells that flow through a CF-DEP device. Cell response to DEP is recorded 
 - Exporting tracking data to a CSV file.
 - User interface 
 
+## How to install
+Installation is extremely simple, just
+
+## How to use:
+Run main.py
+
+A UI will appear with lots of information.
+
+The region of interest (ROI) is where the tracking will occur.
+
+"Choose .csv path" will change where the results file is saved. By default, the file will save in the "results" folder.
+
+The "Save overlay?" checkbox will allow the user to save an overlay of tracked object labels on top of the inputted 
+frames. The overlay frames currently save to the folder named 'nd2_results'. If you are only interested in counts 
+of cells, you don't need to save overlays. The overlay is a good way to visualize tracking behavior. 
+
+
+"Preview ROI" will allow you to define your own ROI on an image. A file/folder must be selected first to open an 
+image. To create the ROI, click and drag on the image in the new window. To confirm your ROI, press "enter" or 
+"space" and to cancel your selection, press "c"
+
 ## Notes to self:
 ffmpeg -i 50_kHz.mp4 -vf fps=1 image-%03d.png
 
