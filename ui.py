@@ -41,22 +41,22 @@ class ROISelectionApp:
         self.csv_button.grid(row=0, column=3, padx=5, pady=5)
 
         # ROI X input field
-        tk.Label(self.master, text="ROI X:").grid(row=2, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="ROI X (px):").grid(row=2, column=0, padx=5, pady=5)
         self.roi_x_entry = tk.Entry(self.master, textvariable=self.roi_x)
         self.roi_x_entry.grid(row=2, column=1, padx=5, pady=5)
 
         # ROI Y input field
-        tk.Label(self.master, text="ROI Y:").grid(row=3, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="ROI Y (px):").grid(row=3, column=0, padx=5, pady=5)
         self.roi_y_entry = tk.Entry(self.master, textvariable=self.roi_y)
         self.roi_y_entry.grid(row=3, column=1, padx=5, pady=5)
 
         # ROI Height input field
-        tk.Label(self.master, text="ROI Height:").grid(row=4, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="ROI Height (px):").grid(row=4, column=0, padx=5, pady=5)
         self.roi_height_entry = tk.Entry(self.master, textvariable=self.roi_height)
         self.roi_height_entry.grid(row=4, column=1, padx=5, pady=5)
 
         # ROI Width input field
-        tk.Label(self.master, text="ROI Width:").grid(row=5, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="ROI Width (px):").grid(row=5, column=0, padx=5, pady=5)
         self.roi_width_entry = tk.Entry(self.master, textvariable=self.roi_width)
         self.roi_width_entry.grid(row=5, column=1, padx=5, pady=5)
 
@@ -75,7 +75,7 @@ class ROISelectionApp:
         self.canny_lower_entry.grid(row=3, column=3, padx=5, pady=5)
 
         # Max Centroid Distance
-        tk.Label(self.master, text="Max Centroid Distance:").grid(row=4, column=2, padx=5, pady=5)
+        tk.Label(self.master, text="Max Centroid Distance (px):").grid(row=4, column=2, padx=5, pady=5)
         self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
         self.max_centroid_distance_entry.grid(row=4, column=3, padx=5, pady=5)
 
