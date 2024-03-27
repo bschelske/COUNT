@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import filedialog
 import cv2
 import os
+import tracking
 from nd2reader import ND2Reader
 import numpy as np
 
@@ -17,8 +18,9 @@ class ROISelectionApp:
         self.roi_width = tk.IntVar(value=400)    # Default value for ROI Width
         self.canny_upper = tk.IntVar(value=255)  # Default value for ROI Height
         self.canny_lower = tk.IntVar(value=85)    # Default value for ROI Width
-        self.max_centroid_distance = tk.IntVar(value=50)  # max distance an object will travel between frames
+        self.max_centroid_distance = tk.IntVar(value=70)  # max distance an object will travel between frames
         self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost
+        self.cell_radius= tk.IntVar(value=6)
         self.save_overlay = tk.IntVar()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
 
@@ -61,8 +63,14 @@ class ROISelectionApp:
         self.roi_width_entry.grid(row=5, column=1, padx=5, pady=5)
 
         # ROI Preview button
+        tk.Label(self.master, text="Define ROI on image").grid(row=6, column=0, padx=5, pady=5)
         self.roi_button = tk.Button(self.master, text="Preview ROI", command=self.preview_roi)
-        self.roi_button.grid(row=6, column=0, padx=5, pady=5)
+        self.roi_button.grid(row=7, column=1, padx=5, pady=5)
+
+        # Preview Edge Dectection button
+        tk.Label(self.master, text="Visualize Edge Detection").grid(row=7, column=2, padx=5, pady=5)
+        self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
+        self.edge_preview_button.grid(row=7, column=3, padx=5, pady=5)
 
         # Canny Upper
         tk.Label(self.master, text="Canny Upper:").grid(row=2, column=2, padx=5, pady=5)
@@ -84,17 +92,22 @@ class ROISelectionApp:
         self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
         self.timeout_entry.grid(row=5, column=3, padx=5, pady=5)
 
+        # Expected Cell Radius
+        tk.Label(self.master, text="Expected Cell Radius (px):").grid(row=6, column=2, padx=5, pady=5)
+        self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
+        self.cell_radius_entry.grid(row=6, column=3, padx=5, pady=5)
+
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay, command=self.on_checkbox_click)
-        self.save_overlay_checkbox.grid(row=6, column=1, columnspan=1, padx=5, pady=5)
+        self.save_overlay_checkbox.grid(row=8, column=1, columnspan=1, padx=5, pady=5)
 
         # Button to confirm selections
-        self.confirm_button = tk.Button(self.master, text="Confirm", command=self.confirm_selections)
-        self.confirm_button.grid(row=6, column=2, columnspan=2, padx=5, pady=5)
+        self.confirm_button = tk.Button(self.master, text="      Confirm     ", command=self.confirm_selections)
+        self.confirm_button.grid(row=8, column=2, padx=1, pady=10)
 
         # Quit button
-        self.quit_button = tk.Button(self.master, text="Quit", command=self.quit_ui)
-        self.quit_button.grid(row=6, column=3, padx=5, pady=5)
+        self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
+        self.quit_button.grid(row=8, column=3, padx=1, pady=10)
 
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
@@ -158,6 +171,48 @@ class ROISelectionApp:
             self.roi_y.set(ROI[1])
             self.roi_width.set(ROI[2])
             self.roi_height.set(ROI[3])
+
+    def preview_edge_detection(self):
+        """This method is incredibly jank"""
+        if self.file_path == '' and self.folder_path.get() == '':
+            print("Choose a file first!")
+        else:
+            self.input_handling()
+        # Get frames
+        frames = [self.edge_detection_handling(1), self.edge_detection_handling(2)]
+        # Display images
+        concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
+        cv2.namedWindow("Preview Edge Detection", cv2.WINDOW_NORMAL)
+        cv2.imshow('Preview Edge Detection', concat_images)
+        k = cv2.waitKey(1) & 0xFF
+        if k == 27:  # escape key
+            cv2.destroyAllWindows()
+
+    def edge_detection_handling(self, frame_index):
+        with ND2Reader(self.files[0]) as nd2_file:
+            # Get first frame, treat as background
+            background_frame = nd2_file[0]
+            # Get current frame
+            frame = nd2_file[frame_index]
+
+            frame_copy = frame.copy()  # Copy for overlay later...
+            frame_copy = cv2.normalize(frame_copy, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+
+            # Do background subtraction, and normalize for canny
+            background_subtracted_frame = cv2.absdiff(frame, background_frame)
+            normalized_frame = cv2.normalize(background_subtracted_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 5)
+            contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                (x, y), radius = cv2.minEnclosingCircle(cnt)
+                if radius > self.cell_radius.get():
+                    center = (int(x), int(y))
+                    radius = int(radius + 10)
+                    cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
+            frame_copy = frame_copy[2048 // 2:2048, 0:2048]
+            cv2.putText(frame_copy, str(f"Frame {frame_index+1}"), (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 5, cv2.LINE_AA)
+        return frame_copy
 
     def get_roi(self):
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
