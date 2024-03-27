@@ -181,12 +181,20 @@ class ROISelectionApp:
         # Get frames
         frames = [self.edge_detection_handling(1), self.edge_detection_handling(2)]
         # Display images
-        concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
-        cv2.namedWindow("Preview Edge Detection", cv2.WINDOW_NORMAL)
-        cv2.imshow('Preview Edge Detection', concat_images)
-        k = cv2.waitKey(1) & 0xFF
-        if k == 27:  # escape key
-            cv2.destroyAllWindows()
+
+        # concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
+        cv2.namedWindow('Preview Edge Detection "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
+        cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[0])
+
+        while True:
+            k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
+            if k == 51:  # Key code for left arrow key
+                cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[1])  # Display the second frame
+            elif k == 50:  # Key code for right arrow key
+                cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[0])  # Display the first frame
+            elif k == 27:  # ESC key
+                break
+
 
     def edge_detection_handling(self, frame_index):
         with ND2Reader(self.files[0]) as nd2_file:
@@ -204,14 +212,16 @@ class ROISelectionApp:
             normalized_frame = cv2.normalize(background_subtracted_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+            count = 0
             for cnt in contours:
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
                 if radius > self.cell_radius.get():
                     center = (int(x), int(y))
                     radius = int(radius + 10)
                     cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
+                    count += 1
             # frame_copy = frame_copy[self.roi_y.get():self.roi_y.get()+self.roi_height.get(), self.roi_x.get():self.roi_x.get()+self.roi_width.get()]
-            cv2.putText(frame_copy, str(f"Frame {frame_index+1}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {count}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
         return frame_copy
 
     def get_roi(self):
