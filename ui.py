@@ -192,11 +192,6 @@ class ROISelectionApp:
         with ND2Reader(self.files[0]) as nd2_file:
             # Get first frame, treat as background
             background_frame = nd2_file[frame_index-1]
-            # Find contours in the background (sanity)
-            normalized_frame = cv2.normalize(background_frame, None, 0, 255, cv2.NORM_MINMAX,
-                                             dtype=cv2.CV_8U)
-            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
-            previous_contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
 
             # Get current frame
             frame = nd2_file[frame_index]
@@ -209,22 +204,14 @@ class ROISelectionApp:
             normalized_frame = cv2.normalize(background_subtracted_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
-
             for cnt in contours:
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
                 if radius > self.cell_radius.get():
                     center = (int(x), int(y))
                     radius = int(radius + 10)
                     cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
-            for cnt in previous_contours:
-                (x, y), radius = cv2.minEnclosingCircle(cnt)
-                if radius > self.cell_radius.get():
-                    center = (int(x), int(y))
-                    radius = int(radius + 10)
-                    cv2.circle(frame_copy, center, radius, (0, 255, 0), 2)
-
-            frame_copy = frame_copy[2048 // 2:2048, 0:2048]
-            cv2.putText(frame_copy, str(f"Frame {frame_index+1}"), (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 3, (0, 0, 0), 5, cv2.LINE_AA)
+            # frame_copy = frame_copy[self.roi_y.get():self.roi_y.get()+self.roi_height.get(), self.roi_x.get():self.roi_x.get()+self.roi_width.get()]
+            cv2.putText(frame_copy, str(f"Frame {frame_index+1}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
         return frame_copy
 
     def get_roi(self):
