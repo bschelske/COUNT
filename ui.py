@@ -213,15 +213,31 @@ class ROISelectionApp:
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
             count = 0
+
+            # for cnt in contours:
+            #     (x, y), radius = cv2.minEnclosingCircle(cnt)
+            #     if radius > self.cell_radius.get():
+            #         center = (int(x), int(y))
+            #         radius = int(radius + 10)
+            #         cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
+            #         count += 1
+
+            # create an empty mask
+            mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
+
             for cnt in contours:
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
-                if radius > self.cell_radius.get():
-                    center = (int(x), int(y))
-                    radius = int(radius + 10)
-                    cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
-                    count += 1
+                center = (int(x), int(y))
+                radius = int(radius + self.cell_radius.get())
+                cv2.circle(mask, center, radius, (255), -1)
+
+            # find the contours on the mask (with solid drawn shapes) and draw outline on input image
+            contours, hierarchy = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for cnt in contours:
+                cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+
             # frame_copy = frame_copy[self.roi_y.get():self.roi_y.get()+self.roi_height.get(), self.roi_x.get():self.roi_x.get()+self.roi_width.get()]
-            cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {count}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {len(contours)}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
         return frame_copy
 
     def get_roi(self):
