@@ -6,7 +6,7 @@ import numpy as np
 from nd2reader import ND2Reader
 
 
-def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, max_centroid_distance, timeout, draw_ROI=False, save_overlay=False):
+def tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lower, max_centroid_distance, timeout, draw_ROI=False, save_overlay=False):
     overlay_frames = []
     active_ids = {}
     object_final_position = []
@@ -17,7 +17,7 @@ def tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, max_cent
     next_id = 1
 
     for frame_index, frame in enumerate(frames):
-        objects, img_copy = detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower)
+        objects, img_copy = detect_objects(frame, frame_index, ROI, cell_radius, spots, canny_upper, canny_lower)
         active_id_trajectory.extend(objects)
         # Remove IDs of objects that have moved off the screen
         for obj_id, tracked_obj in list(active_ids.items()):
