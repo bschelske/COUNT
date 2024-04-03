@@ -61,7 +61,7 @@ for index, nd2_file in enumerate(app.files):
     # Create csv file from tracking info
     print("Creating csv files")
     csv_filename = f"{app.csv_folder_path.get()}{file_name}_results.csv"
-    tracking.export_to_csv(active_id_trajectory, csv_filename)
+    tracking.export_to_csv(object_final_position, csv_filename)
     print(f"{csv_filename} saved")
 
     # # Create csv file from tracking info

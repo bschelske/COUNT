@@ -2,6 +2,9 @@ import tkinter as tk
 from tkinter import filedialog
 import cv2
 import os
+
+from matplotlib import pyplot as plt
+
 import tracking
 from nd2reader import ND2Reader
 import numpy as np
@@ -179,7 +182,7 @@ class ROISelectionApp:
         else:
             self.input_handling()
         # Get frames
-        frames = [self.edge_detection_handling(1), self.edge_detection_handling(2)]
+        frames = [self.edge_detection_handling(1), self.edge_detection_handling(4)]
         # Display images
 
         # concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
@@ -197,9 +200,15 @@ class ROISelectionApp:
 
 
     def edge_detection_handling(self, frame_index):
+        backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
         with ND2Reader(self.files[0]) as nd2_file:
+            # MOG2 Background Method:
+            for frame in nd2_file[:5]:  # First five frames to calculate background
+                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                foreground_mask = backSub.apply(frame)
+
             # Get first frame, treat as background
-            background_frame = nd2_file[frame_index - 1]
+            # background_frame = nd2_file[frame_index - 1]
 
             # Get current frame
             frame = nd2_file[frame_index]
@@ -208,8 +217,8 @@ class ROISelectionApp:
             frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
 
             # Do background subtraction, and normalize for canny
-            background_subtracted_frame = cv2.absdiff(frame, background_frame)
-            normalized_frame = cv2.normalize(background_subtracted_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            # background_subtracted_frame = cv2.absdiff(frame, background_frame)
+            normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
 

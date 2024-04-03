@@ -22,7 +22,7 @@ def tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lo
         # Remove IDs of objects that have moved off the screen
         for obj_id, tracked_obj in list(active_ids.items()):
             tracked_obj.object_id = obj_id
-            if tracked_obj.position[0] > img_w:
+            if tracked_obj.position[0] > (roi_x+roi_w):
                 tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
                 object_final_position.append(tracked_obj)
                 del active_ids[obj_id]
