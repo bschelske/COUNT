@@ -199,7 +199,7 @@ class ROISelectionApp:
     def edge_detection_handling(self, frame_index):
         with ND2Reader(self.files[0]) as nd2_file:
             # Get first frame, treat as background
-            background_frame = nd2_file[frame_index-1]
+            background_frame = nd2_file[frame_index - 1]
 
             # Get current frame
             frame = nd2_file[frame_index]
@@ -212,7 +212,6 @@ class ROISelectionApp:
             normalized_frame = cv2.normalize(background_subtracted_frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
-            count = 0
 
             # for cnt in contours:
             #     (x, y), radius = cv2.minEnclosingCircle(cnt)

@@ -30,13 +30,14 @@ canny_upper = app.canny_upper.get()
 save_overlay = app.save_overlay.get()
 timeout = app.timeout.get()
 max_centroid_distance = app.max_centroid_distance.get()
+cell_radius = app.cell_radius.get()
 
 # Additional parameters for tracking function
 # Spots are rectangular regions to be ignored in tracking. (likely obsolete with inclusion of background subtraction)
 spots = []  # spot in spots = (x,y,w,h)
 output_path = "nd2_results/frame_"  # If overlay = true, save here
 
-# Iterate through all input files
+# Iterate through all input files (could be one file or many)
 for index, nd2_file in enumerate(app.files):
     print(f"Processing file {index + 1} of {len(app.files)}: {nd2_file}")
     file_name = os.path.basename(nd2_file[:-4])  # Get the filename from file
@@ -54,7 +55,7 @@ for index, nd2_file in enumerate(app.files):
     # Perform tracking
     print("Tracking...")
     overlay_frames, object_final_position, active_id_trajectory = \
-        tracking.tracking(frames, output_path, ROI, spots, canny_upper, canny_lower, max_centroid_distance, timeout,
+        tracking.tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lower, max_centroid_distance, timeout,
                           draw_ROI=False, save_overlay=save_overlay)
 
     # Create csv file from tracking info

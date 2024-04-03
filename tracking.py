@@ -1,6 +1,8 @@
 import os
 import cv2 as cv
 import csv
+
+import numpy as np
 from nd2reader import ND2Reader
 
 
@@ -139,7 +141,7 @@ def calculate_distance(detected_object1, detected_object2):
     return distance
 
 
-def detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower):
+def detect_objects(frame, frame_index, ROI, cell_radius, spots, canny_upper, canny_lower):
     """
     Detects objects from inputted frame using canny edge detection and contour calculations.
 
@@ -154,31 +156,60 @@ def detect_objects(frame, frame_index, ROI, spots, canny_upper, canny_lower):
     Returns:
     The detected objects as contours: area_contours, img_copy a copy of the input frame, which may be the frame itself
     or contours only.
+
+    note: the frames inputted here are png files. The assumption is that they have already been background subtracted
     """
 
     roi_x, roi_y, roi_h, roi_w = ROI
-    img_copy = frame.copy()
-    img_copy = cv.cvtColor(img_copy, cv.COLOR_GRAY2RGB)
-    canny_img = cv.Canny(frame, canny_lower, canny_upper, 5)
-    corrected_image = spot_correction(canny_img, spots)
-    img_copy[corrected_image == 255] = [0, 0, 255]  # turn edges to red (bgr)
-    img_copy = corrected_image  # avoids overlay on regular image, instead visualizes contours
-    contours, hierarchy = cv.findContours(corrected_image, mode=cv.RETR_TREE, method=cv.CHAIN_APPROX_NONE)
-    area_contours = []
-    # Get contours in analysis region with area
-    for cnt in contours:
-        x, y, w, h = cv.boundingRect(cnt)
-        if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
-            if cv.contourArea(cnt, True) > 0:
-                area_contours.append(
-                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
-                                   DEP_outlet=None))
-            else:
-                pass
-        else:
-            pass
 
-    return area_contours, img_copy
+    # Get current frame
+    frame_copy = frame.copy()
+    frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2RGB)
+    canny_img = cv.Canny(frame, canny_lower, canny_upper, 3)
+
+    # Spot correction likely unnecessary following background subtraction
+    corrected_image = spot_correction(canny_img, spots)
+    frame_copy[corrected_image == 255] = [0, 0, 255]  # turn canny edges to red (bgr)
+    frame_copy = corrected_image  # avoids overlay on regular image, instead visualizes contours
+
+    # Get contours
+    contours, hierarchy = cv.findContours(corrected_image, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+
+    # create an empty mask
+    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
+
+    for cnt in contours:
+        (x, y), radius = cv.minEnclosingCircle(cnt)
+        center = (int(x), int(y))
+        radius = int(radius + cell_radius)
+        cv.circle(mask, center, radius, (255), -1)
+
+    area_contours = []
+    # find the contours on the mask (with solid drawn shapes) and draw outline on input image
+    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    for cnt in contours:
+        cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+        x, y, w, h = cv.boundingRect(cnt)
+        area_contours.append(
+            DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
+                           DEP_outlet=None))
+
+
+    # area_contours = []
+    # # Get contours in analysis region with area
+    # for cnt in contours:
+    #     x, y, w, h = cv.boundingRect(cnt)
+    #     if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
+    #         if cv.contourArea(cnt, True) > 0:
+    #             area_contours.append(
+    #                 DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
+    #                                DEP_outlet=None))
+    #         else:
+    #             pass
+    #     else:
+    #         pass
+
+    return area_contours, frame_copy
 
 
 def get_frames(parent_dir):
