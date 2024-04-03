@@ -182,7 +182,7 @@ class ROISelectionApp:
         else:
             self.input_handling()
         # Get frames
-        frames = [self.edge_detection_handling(1), self.edge_detection_handling(4)]
+        frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
         # Display images
 
         # concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
@@ -203,7 +203,7 @@ class ROISelectionApp:
         backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
         with ND2Reader(self.files[0]) as nd2_file:
             # MOG2 Background Method:
-            for frame in nd2_file[:5]:  # First five frames to calculate background
+            for frame in nd2_file[:frame_index+1]:  # First five frames to calculate background
                 frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 foreground_mask = backSub.apply(frame)
 
