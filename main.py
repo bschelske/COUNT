@@ -41,22 +41,23 @@ output_path = "nd2_results/frame_"  # If overlay = true, save here
 for index, nd2_file in enumerate(app.files):
     print(f"Processing file {index + 1} of {len(app.files)}: {nd2_file}")
     file_name = os.path.basename(nd2_file[:-4])  # Get the filename from file
-    temp_dir = tempfile.mkdtemp()  # Make temp folder for images
-    print("Temporary directory created:", temp_dir)
+    # temp_dir = tempfile.mkdtemp()  # Make temp folder for images
+    # print("Temporary directory created:", temp_dir)
 
     # Convert nd2 file to png files and store into the temp folder
-    nd2_background_subtraction(nd2_file, temp_dir)
-
-    # Load png files from temp folder
-    frame_directory = temp_dir
-    print(f'Getting frames from {frame_directory}')
-    frames = tracking.get_frames(parent_dir=frame_directory)
-
-    # Perform tracking
-    print("Tracking...")
-    overlay_frames, object_final_position, active_id_trajectory = \
-        tracking.tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lower, max_centroid_distance, timeout,
-                          draw_ROI=False, save_overlay=save_overlay)
+    # nd2_background_subtraction(nd2_file, temp_dir)
+    object_final_position, active_id_trajectory = tracking.nd2_mog_contours(nd2_file, app)
+    #
+    # # Load png files from temp folder
+    # frame_directory = temp_dir
+    # print(f'Getting frames from {frame_directory}')
+    # frames = tracking.get_frames(parent_dir=frame_directory)
+    #
+    # # Perform tracking
+    # print("Tracking...")
+    # overlay_frames, object_final_position, active_id_trajectory = \
+    #     tracking.tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lower, max_centroid_distance, timeout,
+    #                       draw_ROI=False, save_overlay=save_overlay)
 
     # Create csv file from tracking info
     print("Creating csv files")
@@ -68,9 +69,9 @@ for index, nd2_file in enumerate(app.files):
     # csv_filename = f"results/active_id_trajectory.csv"
     # export_to_csv(active_id_trajectory, csv_filename)
     # print(f"{csv_filename} saved")
-
-    shutil.rmtree(temp_dir)
-    print("Temporary directory deleted:", temp_dir)
+    #
+    # shutil.rmtree(temp_dir)
+    # print("Temporary directory deleted:", temp_dir)
 
 # TODO: diagnose overcounting
 # TODO: GPU acceleration :)

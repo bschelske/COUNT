@@ -207,9 +207,6 @@ class ROISelectionApp:
                 frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 foreground_mask = backSub.apply(frame)
 
-            # Get first frame, treat as background
-            # background_frame = nd2_file[frame_index - 1]
-
             # Get current frame
             frame = nd2_file[frame_index]
             frame_copy = frame.copy()  # Copy for overlay later...
@@ -217,22 +214,14 @@ class ROISelectionApp:
             frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
 
             # Do background subtraction, and normalize for canny
-            # background_subtracted_frame = cv2.absdiff(frame, background_frame)
             normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
 
-            # for cnt in contours:
-            #     (x, y), radius = cv2.minEnclosingCircle(cnt)
-            #     if radius > self.cell_radius.get():
-            #         center = (int(x), int(y))
-            #         radius = int(radius + 10)
-            #         cv2.circle(frame_copy, center, radius, (0, 0, 255), 2)
-            #         count += 1
-
             # create an empty mask
             mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
 
+            # Draw filled contours on a mask using bounding circles
             for cnt in contours:
                 (x, y), radius = cv2.minEnclosingCircle(cnt)
                 center = (int(x), int(y))
@@ -244,7 +233,6 @@ class ROISelectionApp:
             for cnt in contours:
                 cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
 
-            # frame_copy = frame_copy[self.roi_y.get():self.roi_y.get()+self.roi_height.get(), self.roi_x.get():self.roi_x.get()+self.roi_width.get()]
             cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {len(contours)}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
         return frame_copy
 

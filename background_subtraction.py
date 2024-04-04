@@ -1,4 +1,5 @@
 import cv2 as cv
+import numpy as np
 from nd2reader import ND2Reader
 import tempfile
 import shutil
