@@ -142,12 +142,12 @@ class ROISelectionApp:
         self.input_handling()
 
         print(".csv results save path:", self.csv_folder_path.get())
-        # print("ROI X:", self.roi_x.get())
-        # print("ROI Y:", self.roi_y.get())
-        # print("ROI Height:", self.roi_height.get())
-        # print("ROI Width:", self.roi_width.get())
-        # print("Canny Upper:", self.canny_upper.get())
-        # print("Canny Lower:", self.canny_lower.get())
+        print("ROI X:", self.roi_x.get())
+        print("ROI Y:", self.roi_y.get())
+        print("ROI Height:", self.roi_height.get())
+        print("ROI Width:", self.roi_width.get())
+        print("Canny Upper:", self.canny_upper.get())
+        print("Canny Lower:", self.canny_lower.get())
         # Close the Tkinter window
         self.master.destroy()
 
