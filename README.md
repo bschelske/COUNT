@@ -24,7 +24,10 @@ track cells that flow through a CF-DEP device. Cell response to DEP is recorded 
 ## How to install
 1. Add the repository to your IDE (tested with PyCharm).
 2. Install requirements in requirements.txt.
-3. Run the main.py file.
+```python
+pip install -r requirements.txt
+```
+4. Run the main.py file.
 
 ## How to use:
 Run main.py
