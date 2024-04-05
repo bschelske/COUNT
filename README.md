@@ -51,8 +51,6 @@ will be reassigned its label ID = 3. If an object disappears for longer than the
 the label (ID = 3) is retired. No more objects will be assigned with that exact label. 
 
 
-
-
 The `Save overlay?` checkbox will allow the user to save an overlay of tracked object labels on top of the inputted 
 frames. The overlay frames currently save to the folder named 'nd2_results'. If you are only interested in counts 
 of cells, you don't need to save overlays. The overlay is a good way to visualize tracking behavior. 
@@ -66,17 +64,5 @@ image. To create the ROI, click and drag on the image in the new window. To conf
 Contributions are welcome! Feel free to open issues or pull requests.
 
 Contact bschelsk@iastate.edu
-
-
-## Notes to self:
-ffmpeg -i 50_kHz.mp4 -vf fps=1 image-%03d.png
-
-convert to images until 1 second into video
-
-ffmpeg -ss 0 -t 1 -i 50_kHz.mp4 image-%03d.png
-
-ffmpeg -framerate 7 -i canny_image-%03d.png canny.mp4
-
-ffmpeg -framerate 10 -i frame_%d.png tracking.mp4
 
 
