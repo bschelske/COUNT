@@ -20,7 +20,9 @@ track cells that flow through a CF-DEP device. Cell response to DEP is recorded 
 - User interface 
 
 ## How to install
-Installation is extremely simple, just
+1. Add the repository to your IDE (tested with PyCharm).
+2. Install requirements in requirements.txt.
+3. Run the main.py file.
 
 ## How to use:
 Run main.py
@@ -58,6 +60,10 @@ of cells, you don't need to save overlays. The overlay is a good way to visualiz
 "Preview ROI" will allow you to define your own ROI on an image. A file/folder must be selected first to open an 
 image. To create the ROI, click and drag on the image in the new window. To confirm your ROI, press "enter" or 
 "space" and to cancel your selection, press "c"
+
+## Contributing
+Contributions are welcome! Feel free to open issues or pull requests.
+
 
 ## Notes to self:
 ffmpeg -i 50_kHz.mp4 -vf fps=1 image-%03d.png
