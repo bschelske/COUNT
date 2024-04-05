@@ -1,5 +1,5 @@
 # Count Objects Until No Tomorrow (C.O.U.N.T.)
-🧛‍♂️:_Ah-ah-ah!_ 
+🧛‍♂️: _Ah-ah-ah!_ 
 ## Description
 This project is an object tracking system implemented in Python. It provides functionality for detecting and 
 tracking objects in video frames using cv2 canny edge detection. The intended application of this project is to 
