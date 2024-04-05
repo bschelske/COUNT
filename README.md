@@ -36,33 +36,29 @@ A UI will appear with lots of information.
 
 The region of interest (ROI) is where the tracking will occur.
 
-"Choose .csv path" will change where the results file is saved. By default, the file will save in the "results" folder.
+`Choose .csv path` will change where the results file is saved. By default, the file will save in the "results" folder.
 
-"Canny upper" and "Canny lower" are the bounds for edge hysteresis thresholding. Choosing a 3:1 (default) or 2:1 
+`Canny upper` and `Canny lower` are the bounds for edge hysteresis thresholding. Choosing a 3:1 (default) or 2:1 
 ratio works well. 
 
-"Max centroid distance" is the maximum allowable distance an object can travel between frames.
+`Max centroid distance` is the maximum allowable distance an object can travel between frames.
 
-"Timeout Threshold (frames)" is the amount of time before a labeled object is considered gone. Sometimes, the object 
+`Timeout Threshold (frames)` is the amount of time before a labeled object is considered gone. Sometimes, the object 
 being tracked will be lost by the algorithm. This value is how long the algorithm will continue looking for an 
 object before giving up. For example, if an object is labeled with ID = 3 and disappears for a frame, that's OK because 
-the 
-timeout is 
-longer 
-than one frame. If the object reappears before the timeout threshold, then tracking will continue and the object 
+the timeout is longer than one frame. If the object reappears before the timeout threshold, then tracking will continue and the object 
 will be reassigned its label ID = 3. If an object disappears for longer than the threshold, its considered gone and 
-the 
-label (ID = 3) is retired. No more objects will be assigned with that exact label. 
+the label (ID = 3) is retired. No more objects will be assigned with that exact label. 
 
 
 
 
-The "Save overlay?" checkbox will allow the user to save an overlay of tracked object labels on top of the inputted 
+The `Save overlay?` checkbox will allow the user to save an overlay of tracked object labels on top of the inputted 
 frames. The overlay frames currently save to the folder named 'nd2_results'. If you are only interested in counts 
 of cells, you don't need to save overlays. The overlay is a good way to visualize tracking behavior. 
 
 
-"Preview ROI" will allow you to define your own ROI on an image. A file/folder must be selected first to open an 
+`Preview ROI` will allow you to define your own ROI on an image. A file/folder must be selected first to open an 
 image. To create the ROI, click and drag on the image in the new window. To confirm your ROI, press "enter" or 
 "space" and to cancel your selection, press "c"
 
