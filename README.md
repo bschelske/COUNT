@@ -6,17 +6,19 @@ tracking objects in video frames using cv2 canny edge detection. The intended ap
 track cells that flow through a CF-DEP device. Cell response to DEP is recorded within results.csv 
 
 **General workflow:**
-1. Conversion. nd2 files are converted into pngs.
-2. Background Subtraction. The first frame is subtracted from all subsequent frames
-3. cv2.Canny Edge Detection and cv2.findContours
-4. Centroid Distance Tracking. For an object in frame _n_, the object detected in frame _n_ + 1 that has traveled 
+1. Conversion. nikon nd2 files are converted into pngs.
+2. Background Subtraction. MOG2 foreground segmentation.
+3. Canny edge detection is used to find contours.
+4. Overlapping contours are added to a mask, and removed by edge detection of the mask.
+5. Centroid Distance Tracking. For an object in frame _n_, the object detected in frame _n_ + 1 that has traveled 
    the smallest distance from the object in frame _n_ is the same object.
-5. Results. Results are saved to a .csv file.
+6. Results. Results are saved to a .csv file.
 
 ## Features
 - Object detection and tracking in video frames or .nd2 files.
 - Background subtraction
-- Exporting tracking data to a CSV file.
+- Exporting tracking data to a .csv file.
+- Plotting of generated .csv files
 - User interface 
 
 ## How to install
@@ -45,7 +47,7 @@ the
 timeout is 
 longer 
 than one frame. If the object reappears before the timeout threshold, then tracking will continue and the object 
-will be reassigned it's label ID = 3. If an object dissapears for longer than the threshold, its considered gone and 
+will be reassigned its label ID = 3. If an object disappears for longer than the threshold, its considered gone and 
 the 
 label (ID = 3) is retired. No more objects will be assigned with that exact label. 
 
@@ -63,6 +65,7 @@ image. To create the ROI, click and drag on the image in the new window. To conf
 
 ## Contributing
 Contributions are welcome! Feel free to open issues or pull requests.
+contact bschelsk@iastate.edu
 
 
 ## Notes to self:
