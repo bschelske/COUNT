@@ -24,7 +24,10 @@ for index, nd2_file in enumerate(app.files):
     print(f"Processing file {index + 1} of {len(app.files)}: {nd2_file}")
 
     try:
-        file_name = os.path.basename(nd2_file)[:-4]  # Get the filename without extension
+        # Get the filename without extension
+        file_name = os.path.basename(nd2_file)[:-4]
+
+        # Track the nd2 file using MOG2 background subtraction
         object_final_position, active_id_trajectory = tracking.nd2_mog_contours(nd2_file, app)
 
         csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
