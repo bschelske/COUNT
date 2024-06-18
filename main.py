@@ -4,7 +4,7 @@ C. O. U. N. T.
     Count objects until no tomorrow...
     By Ben
 ===================
-Check the readme on gitHub for more information. https://github.com/bschelske/C.O.U.N.T.
+Check the readme on gitHub for more information. https://github.com/bschelske/COUNT
     "Ah- ah- ah!"
 """
 import os

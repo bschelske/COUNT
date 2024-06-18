@@ -199,15 +199,15 @@ class ROISelectionApp:
         # Get frames
         frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
         # Display images
-        cv2.namedWindow('Preview Edge Detection "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
-        cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[0])
+        cv2.namedWindow('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
+        cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])
 
         while True:
             k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
             if k == 52:  # Key code 4
-                cv2.imshow('Next frame press "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
+                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
             elif k == 53:  # Key code 5
-                cv2.imshow('Previous frame press "4" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
+                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
             elif k == 27:  # ESC key
                 break
 

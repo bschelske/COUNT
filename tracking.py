@@ -3,50 +3,112 @@ import cv2 as cv
 import csv
 import numpy as np
 from nd2reader import ND2Reader
-from typing import List, Tuple
+from typing import Any
 
 """
 ===================
 T R A C K I N G 
 ===================
-This is where most of the work is done. The main.py file will run this code using instructions from the UI. 
-Read more: https://github.com/bschelske/C.O.U.N.T.
+This is where most of the work is done. The main.py file will run this code using instructions from the UI.
+
+General tracking strategy:
+    Import ND2 file and perform MOG2 background subtraction
+    Use canny edge detection on background subtracted frames to generate contours
+    Track contours through time using minimum distance traveled between frames
+
+Specific tracking nuance:
+    Objects are tracked assuming they enter from the left of the image
+    There needs to be space to the left and right of the ROI
+        Necessary to check that objects enter from the left
+        and disappear on the right
+    Tracking would likely improve on nd2 files where
+        Objects have good contrast on background
+        files are high frame rate
+            (High FPS = More data... try decreasing camera ROI to make files smaller at high FPS)
+    If you decide to save overlays, you'll get a bunch of .png files in a folder.
+        hint: ffmpeg 
+    
+Read more: 
+https://github.com/bschelske/COUNT
 """
 
 
-def export_to_csv(object_history, csv_filename: str) -> None:
-    with open(csv_filename, 'w', newline='') as csvfile:
-        fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
-                      'DEP_response']
-        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-        writer.writeheader()
-        count = 0
+class DetectedObject:
+    """
+    This class represents a detected object with various properties and methods to manipulate and track the object.
 
-        for obj in object_history:
-            if obj.frames_tracked > 1:
-                count += 1
-            writer.writerow({
-                'object_id': obj.object_id,
-                'x_pos': obj.position[0],
-                'y_pos': obj.position[1],
-                'x_size': obj.size[0],
-                'y_size': obj.size[1],
-                'most_recent_frame': obj.most_recent_frame,
-                'frames_tracked': obj.frames_tracked,
-                'DEP_response': obj.DEP_outlet
-            })
-        print(f"Cells counted: {count}")
+    Attributes:
+    ----------
+    object_id : int
+        A unique identifier for the object.
+    position : Tuple[float, float]
+        The (x, y) position of the object.
+    size : Tuple[float, float]
+        The (w, h) size of the object.
+    most_recent_frame : int
+        The most recent frame number where the object was detected.
+    DEP_outlet : Bool
+        True: object is influenced by DEP, False: no DEP. Determined by obj y position
+    frames_tracked : int
+        The number of frames the object has been tracked.
+
+    Methods
+    -------
+    update_position(new_position: Tuple[float, float]) -> None
+        Updates the position of the object.
+
+    update_frames_tracked() -> None
+        Increments the frame tracking counter.
+
+    enters_from_left(roi_x: float, roi_w: float) -> bool
+        Checks if the object enters the region of interest (ROI) from the left.
+
+    exits_right(roi_x: float, roi_w: float) -> bool
+        Checks if the object exits the ROI from the right.
+
+    center() -> Tuple[float, float]
+        Calculates and returns the center position of the object.
+
+    outlet_assignment(roi_h: float, roi_y: float) -> None
+        Assigns the DEP outlet status based on the object's position within the ROI.
+    """
+    def __init__(self, object_id, position, size, most_recent_frame, DEP_outlet):
+        self.object_id = object_id
+        self.position = position
+        self.size = size
+        self.most_recent_frame = most_recent_frame
+        self.DEP_outlet = DEP_outlet
+        self.frames_tracked = 0
+
+    def update_position(self, new_position):
+        self.position = new_position
+
+    def update_frames_tracked(self):
+        self.frames_tracked += 1
+
+    def enters_from_left(self, roi_x, roi_w):
+        if roi_x < self.position[0] < roi_x + int(roi_w * .2):
+            return True
+        else:
+            return False
+
+    def exits_right(self, roi_x, roi_w):
+        if roi_x + roi_w < self.position[0]:
+            return True
+        else:
+            return False
+
+    def center(self):
+        return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
+
+    def outlet_assignment(self, roi_h, roi_y):
+        if int(self.position[1]) <= (roi_h / 2 + roi_y):
+            self.DEP_outlet = True  # DEP Responsive
+        else:
+            self.DEP_outlet = False  # Not DEP Responsive
 
 
 def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtraction/"):
-    """
-    Object detection and tracking by MOG2 background subtraction of ND2 files.
-
-    :param nd2_file_path: str
-    :param ui_app:
-    :param output_path:
-    :return:
-    """
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
@@ -126,14 +188,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtrac
 
 
 def detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app):
-    """
-    Detect objects from MOG2 background subtracted frames.
-    :param nd2_file_path:
-    :param frame_index:
-    :param backSub:
-    :param ui_app:
-    :return:
-    """
+
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
     with ND2Reader(nd2_file_path) as nd2_file:
@@ -176,62 +231,20 @@ def detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app):
     return objects, frame_copy
 
 
-class DetectedObject:
-    def __init__(self, object_id, position, size, most_recent_frame, DEP_outlet):
-        self.object_id = object_id
-        self.position = position
-        self.size = size
-        self.most_recent_frame = most_recent_frame
-        self.DEP_outlet = DEP_outlet
-        self.frames_tracked = 0
-
-    def update_position(self, new_position):
-        self.position = new_position
-
-    def update_frames_tracked(self):
-        self.frames_tracked += 1
-
-    def enters_from_left(self, roi_x, roi_w):
-        if roi_x < self.position[0] < roi_x + int(roi_w * .2):
-            return True
-        else:
-            return False
-
-    def exits_right(self, roi_x, roi_w):
-        if roi_x + roi_w < self.position[0]:
-            return True
-        else:
-            return False
-
-    def color(self, roi_h, roi_y):
-        if int(self.position[1]) > (roi_h / 2 + roi_y):
-            return (0, 150, 255)  # orange
-        if int(self.position[1]) < (roi_h / 2 + roi_y):
-            return (255, 150, 0)  # blue
-
-    def center(self):
-        return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
-
-    def outlet_assignment(self, roi_h, roi_y):
-        if int(self.position[1]) <= (roi_h / 2 + roi_y):
-            self.DEP_outlet = True  # DEP Responsive
-        else:
-            self.DEP_outlet = False  # Not DEP Responsive
-
-
-def calculate_distance(detected_object1, detected_object2):
+def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> int:
+    """Calculates the euclidean distance between two objects"""
     possible_center = detected_object1.center()
     tracked_center = detected_object2.center()
     distance = int(
         (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
 
-
-def get_frames(parent_dir: str):
-    # Retrieves paths of frames from a directory as a list
-    input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
-    frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
-    return frames
+#
+# def get_frames(parent_dir: str):
+#     # Retrieves paths of frames from a directory as a list
+#     input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
+#     frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
+#     return frames
 
 
 def nd2_to_png(nd2_file_path: str, output_path: str, normalize=False):
@@ -248,3 +261,27 @@ def nd2_to_png(nd2_file_path: str, output_path: str, normalize=False):
             cv.imwrite(converted_path, frame_data)
             print(f"{converted_path} saved", end='\r')
         print("nd2 converted to png")
+
+
+def export_to_csv(object_history, csv_filename: str) -> None:
+    with open(csv_filename, 'w', newline='') as csvfile:
+        fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
+                      'DEP_response']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        count = 0
+
+        for obj in object_history:
+            if obj.frames_tracked > 1:
+                count += 1
+            writer.writerow({
+                'object_id': obj.object_id,
+                'x_pos': obj.position[0],
+                'y_pos': obj.position[1],
+                'x_size': obj.size[0],
+                'y_size': obj.size[1],
+                'most_recent_frame': obj.most_recent_frame,
+                'frames_tracked': obj.frames_tracked,
+                'DEP_response': obj.DEP_outlet
+            })
+        print(f"Cells counted: {count}")
