@@ -36,7 +36,7 @@ class ROISelectionApp:
         self.create_widgets()  # This is the part of the UI you can see
 
     def create_widgets(self):
-        """Makes the visual parts of the UI"""
+        """Makes the visual parts of the UI. Ignore unless changing position of UI elements"""
         # File selection button
         tk.Label(self.master, text="For individual .nd2 file").grid(row=0, column=0, padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
