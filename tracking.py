@@ -1,76 +1,17 @@
 import os
 import cv2 as cv
 import csv
-
 import numpy as np
 from nd2reader import ND2Reader
+from typing import List, Tuple
 
-
-def tracking(frames, output_path, ROI, cell_radius, spots, canny_upper, canny_lower, max_centroid_distance, timeout,
-             draw_ROI=False, save_overlay=False):
-    overlay_frames = []
-    active_ids = {}
-    object_final_position = []
-    active_id_trajectory = []
-    FONT = cv.FONT_HERSHEY_SIMPLEX
-    roi_x, roi_y, roi_h, roi_w = ROI
-    img_h, img_w = frames[0].shape
-    next_id = 1
-
-    for frame_index, frame in enumerate(frames):
-        # Get Objects
-        objects, img_copy = detect_objects(frame, frame_index, ROI, cell_radius, spots, canny_upper, canny_lower)
-        active_id_trajectory.extend(objects)
-
-        # Remove IDs of objects that have moved off the screen
-        for obj_id, tracked_obj in list(active_ids.items()):
-            tracked_obj.object_id = obj_id
-            if tracked_obj.position[0] > (roi_x + roi_w):
-                tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
-                object_final_position.append(tracked_obj)
-                del active_ids[obj_id]
-            elif frame_index - tracked_obj.most_recent_frame > timeout:
-                tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
-                object_final_position.append(tracked_obj)
-                del active_ids[obj_id]  # Expire IDs if no new position found
-
-        for obj in objects:
-            match_found = False
-            # Calculate new positions for tracked objects
-            for obj_id, tracked_obj in active_ids.items():
-                tracked_obj.object_id = obj_id
-                distance = calculate_distance(obj, tracked_obj)
-                if distance < max_centroid_distance and obj.position[0] > tracked_obj.position[0]:
-                    tracked_obj.object_id = obj.object_id
-                    tracked_obj.most_recent_frame = frame_index  # Update last frame detected
-                    match_found = True
-                    break
-
-            if not match_found and obj.object_id is None:
-                if obj.enters_from_left(roi_x, roi_w):
-                    obj.object_id = next_id
-                    obj.most_recent_frame = frame_index  # Set last frame detected
-                    active_ids[next_id] = obj
-                    next_id += 1
-
-        # Draw IDs
-        for obj_id, tracked_obj in active_ids.items():
-            tracked_obj.object_id = obj_id
-            cv.putText(img_copy, str(obj_id), tracked_obj.position, FONT, 1, (255, 255, 255), 1, cv.LINE_AA)
-
-        # Draw ROI on every frame
-        if draw_ROI:
-            cv.rectangle(img_copy, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255, 0, 0), 2)
-
-        # Add frames together into a list
-        overlay_frames.append(img_copy)
-
-    if save_overlay:
-        for idx, overlay_frame in enumerate(overlay_frames):
-            save_path = output_path + f"{idx:03d}.png"
-            cv.imwrite(save_path, overlay_frame)
-    return overlay_frames, object_final_position, active_id_trajectory
-
+"""
+===================
+T R A C K I N G 
+===================
+This is where most of the work is done. The main.py file will run this code using instructions from the UI. 
+Read more: https://github.com/bschelske/C.O.U.N.T.
+"""
 
 def export_to_csv(object_history, csv_filename):
     with open(csv_filename, 'w', newline='') as csvfile:
@@ -96,15 +37,7 @@ def export_to_csv(object_history, csv_filename):
         print(f"Cells counted: {count}")
 
 
-def spot_correction(input_edges, spots):
-    for spot in spots:
-        x, y, w, h = spot
-        input_edges[y:y + h, x:x + w] = 0
-    return input_edges
-
-
 def nd2_mog_contours(nd2_file_path, ui_app, output_path="background_subtraction/"):
-    # Detect objects within ND2 files using MOG subtraction, canny edge detection
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
@@ -270,85 +203,14 @@ def calculate_distance(detected_object1, detected_object2):
     return distance
 
 
-def detect_objects(frame, frame_index, ROI, cell_radius, spots, canny_upper, canny_lower):
-    """
-    Detects objects from inputted frame using canny edge detection and contour calculations.
-
-    Objects are detected within the ROI bounds. Spots are regions that are removed from edge detection
-
-    Parameters:
-    - frame: image from a movie.
-    - frame_index: index of frame from movie.
-    - ROI: tuple (roi_x, roi_y, roi_h, roi_w)
-    - spots: list of tuples where spot in spots = (x,y,w,h)
-
-    Returns:
-    The detected objects as contours: area_contours, img_copy a copy of the input frame, which may be the frame itself
-    or contours only.
-
-    note: the frames inputted here are png files. The assumption is that they have already been background subtracted
-    """
-
-    roi_x, roi_y, roi_h, roi_w = ROI
-
-    # Get current frame
-    frame_copy = frame.copy()
-    frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2RGB)
-    canny_img = cv.Canny(frame, canny_lower, canny_upper, 3)
-
-    # Spot correction likely unnecessary following background subtraction
-    corrected_image = spot_correction(canny_img, spots)
-    frame_copy[corrected_image == 255] = [0, 0, 255]  # turn canny edges to red (bgr)
-    frame_copy = corrected_image  # avoids overlay on regular image, instead visualizes contours
-
-    # Get contours
-    contours, hierarchy = cv.findContours(corrected_image, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
-
-    # create an empty mask
-    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
-
-    for cnt in contours:
-        (x, y), radius = cv.minEnclosingCircle(cnt)
-        if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
-            center = (int(x), int(y))
-            radius = int(radius + cell_radius)
-            cv.circle(mask, center, radius, (255), -1)
-
-    area_contours = []
-    # find the contours on the mask (with solid drawn shapes) and draw outline on input image
-    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    for cnt in contours:
-        cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-        x, y, w, h = cv.boundingRect(cnt)
-        area_contours.append(
-            DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
-                           DEP_outlet=None))
-
-    # area_contours = []
-    # # Get contours in analysis region with area
-    # for cnt in contours:
-    #     x, y, w, h = cv.boundingRect(cnt)
-    #     if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
-    #         if cv.contourArea(cnt, True) > 0:
-    #             area_contours.append(
-    #                 DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
-    #                                DEP_outlet=None))
-    #         else:
-    #             pass
-    #     else:
-    #         pass
-
-    return area_contours, frame_copy
-
-
-def get_frames(parent_dir):
+def get_frames(parent_dir: str):
     # Retrieves paths of frames from a directory as a list
     input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
     frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
     return frames
 
 
-def nd2_to_png(nd2_file_path, output_path, normalize=False):
+def nd2_to_png(nd2_file_path: str, output_path: str, normalize=False):
     with ND2Reader(nd2_file_path) as nd2_file:
         # Print metadata
         print("Metadata:")
