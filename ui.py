@@ -2,34 +2,41 @@ import tkinter as tk
 from tkinter import filedialog
 import cv2
 import os
-
-from matplotlib import pyplot as plt
-
-import tracking
 from nd2reader import ND2Reader
 import numpy as np
 
+"""
+This code handles the creation of the user interface (UI).
+
+The UI is a tkinter object. tkinter is a python library for UIs. 
+create_UI() is called by main.py to make the UI appear. This function returns an instance of the UI.
+The UI is used to gather parameters for the tracking. 
+"""
+
+
 class ROISelectionApp:
+    """Contains all information to begin tracking, collected in the user interface"""
     def __init__(self, master):
+        """Initiate the class and define default values for tracking parameters"""
         self.master = master
         self.file_path = ""
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
-        self.csv_folder_path = tk.StringVar(value="results/") # Default csv save path
+        self.csv_folder_path = tk.StringVar(value="results/")  # Default csv save path
         self.roi_x = tk.IntVar(value=10)  # Default value for ROI X
         self.roi_y = tk.IntVar(value=0)   # Default value for ROI Y
         self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
         self.roi_width = tk.IntVar(value=400)    # Default value for ROI Width
-        self.canny_upper = tk.IntVar(value=255)  # Default value for ROI Height
-        self.canny_lower = tk.IntVar(value=85)    # Default value for ROI Width
-        self.max_centroid_distance = tk.IntVar(value=70)  # max distance an object will travel between frames
-        self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost
-        self.cell_radius= tk.IntVar(value=6)
+        self.canny_upper = tk.IntVar(value=255)  # Default value for upper canny threshold (3:1 ratio)
+        self.canny_lower = tk.IntVar(value=85)    # Default value for lower canny threshold
+        self.max_centroid_distance = tk.IntVar(value=70)  # max distance an object will travel between frames (px)
+        self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost (frames)
+        self.cell_radius = tk.IntVar(value=6)
         self.save_overlay = tk.IntVar()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
-
-        self.create_widgets()
+        self.create_widgets()  # This is the part of the UI you can see
 
     def create_widgets(self):
+        """Makes the visual parts of the UI"""
         # File selection button
         tk.Label(self.master, text="For individual .nd2 file").grid(row=0, column=0, padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
@@ -75,27 +82,27 @@ class ROISelectionApp:
         self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
         self.edge_preview_button.grid(row=7, column=3, padx=5, pady=5)
 
-        # Canny Upper
+        # Canny Upper input field
         tk.Label(self.master, text="Canny Upper:").grid(row=2, column=2, padx=5, pady=5)
         self.canny_upper_entry = tk.Entry(self.master, textvariable=self.canny_upper)
         self.canny_upper_entry.grid(row=2, column=3, padx=5, pady=5)
 
-        # Canny Lower
+        # Canny Lower input field
         tk.Label(self.master, text="Canny Lower:").grid(row=3, column=2, padx=5, pady=5)
         self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
         self.canny_lower_entry.grid(row=3, column=3, padx=5, pady=5)
 
-        # Max Centroid Distance
+        # Max Centroid Distance input field
         tk.Label(self.master, text="Max Centroid Distance (px):").grid(row=4, column=2, padx=5, pady=5)
         self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
         self.max_centroid_distance_entry.grid(row=4, column=3, padx=5, pady=5)
 
-        # Timeout threshold
+        # Timeout threshold input field
         tk.Label(self.master, text="Timeout Threshold (frames):").grid(row=5, column=2, padx=5, pady=5)
         self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
         self.timeout_entry.grid(row=5, column=3, padx=5, pady=5)
 
-        # Expected Cell Radius
+        # Expected Cell Radius input field
         tk.Label(self.master, text="Expected Cell Radius (px):").grid(row=6, column=2, padx=5, pady=5)
         self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
         self.cell_radius_entry.grid(row=6, column=3, padx=5, pady=5)
@@ -112,6 +119,7 @@ class ROISelectionApp:
         self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
         self.quit_button.grid(row=8, column=3, padx=1, pady=10)
 
+    # Some functions of the UI require functions (haha)
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
         print("Selection:", self.file_path)
@@ -131,7 +139,7 @@ class ROISelectionApp:
             print("An overlay of tracked objects will not be saved")
 
     def input_handling(self):
-        # Input handling
+        # Handles if the selection was for a folder or a file.
         if self.folder_path.get():
             self.files = [os.path.join(self.folder_path.get(), f) for f in os.listdir(self.folder_path.get())]
         if self.file_path:
@@ -175,31 +183,36 @@ class ROISelectionApp:
             self.roi_width.set(ROI[2])
             self.roi_height.set(ROI[3])
 
+    def get_roi(self):
+        ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
+        return ROI
+
     def preview_edge_detection(self):
         """This method is incredibly jank"""
+
+        # Error handling
         if self.file_path == '' and self.folder_path.get() == '':
             print("Choose a file first!")
         else:
             self.input_handling()
+
         # Get frames
         frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
         # Display images
-
-        # concat_images = np.concatenate((frames[0], frames[1]), axis=1)  # to display image side by side
         cv2.namedWindow('Preview Edge Detection "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
         cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[0])
 
         while True:
             k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
-            if k == 51:  # Key code for left arrow key
-                cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[1])  # Display the second frame
-            elif k == 50:  # Key code for right arrow key
-                cv2.imshow('Preview Edge Detection "ESC" to change settings/quit', frames[0])  # Display the first frame
+            if k == 52:  # Key code 4
+                cv2.imshow('Next frame press "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
+            elif k == 53:  # Key code 5
+                cv2.imshow('Previous frame press "4" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
             elif k == 27:  # ESC key
                 break
 
-
     def edge_detection_handling(self, frame_index):
+        """Edge detection for UI preview"""
         backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
         with ND2Reader(self.files[0]) as nd2_file:
             # MOG2 Background Method:
@@ -236,16 +249,12 @@ class ROISelectionApp:
             cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {len(contours)}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
         return frame_copy
 
-    def get_roi(self):
-        ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
-        return ROI
-
     def quit_ui(self):
         self.master.destroy()
         quit(2)
 
 
-def create_UI():
+def create_ui():
     root = tk.Tk()
     root.iconbitmap(r'count.ico')
     root.title("Count Objects Until No Tomorrow (C.O.U.N.T.)")

@@ -13,7 +13,8 @@ This is where most of the work is done. The main.py file will run this code usin
 Read more: https://github.com/bschelske/C.O.U.N.T.
 """
 
-def export_to_csv(object_history, csv_filename):
+
+def export_to_csv(object_history, csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
                       'DEP_response']
@@ -37,13 +38,20 @@ def export_to_csv(object_history, csv_filename):
         print(f"Cells counted: {count}")
 
 
-def nd2_mog_contours(nd2_file_path, ui_app, output_path="background_subtraction/"):
+def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtraction/"):
+    """
+    Object detection and tracking by MOG2 background subtraction of ND2 files.
+
+    :param nd2_file_path: str
+    :param ui_app:
+    :param output_path:
+    :return:
+    """
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
-    cell_radius = ui_app.cell_radius.get()
     next_id = 1
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
@@ -53,14 +61,14 @@ def nd2_mog_contours(nd2_file_path, ui_app, output_path="background_subtraction/
         print("Metadata:")
         print(nd2_file.metadata)
         print(nd2_file)
-        img_h, img_w = nd2_file[0].shape
-        overlay_frames = []
-        output_path = "mog_results/frame_"
+
         # Loop through each frame in the nd2 file
         for frame_index in range(len(nd2_file)):
+            print(f"Frame: {frame_index}/{len(nd2_file) -1}")  # Track progress
+
             # Get Objects
-            print(f"Frame: {frame_index}/{len(nd2_file) -1}")
             objects, overlay_frame = detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app)
+
             #     overlay_frames.append(overlay_frame)
             # for idx, overlay_frame in enumerate(overlay_frames):
             #     save_path = output_path + f"{idx:03d}.png"
@@ -68,35 +76,44 @@ def nd2_mog_contours(nd2_file_path, ui_app, output_path="background_subtraction/
 
             active_id_trajectory.extend(objects)
 
-            # Remove IDs of objects that have moved off the screen
+            # Remove IDs of expired objects
             for obj_id, tracked_obj in list(active_ids.items()):
                 tracked_obj.object_id = obj_id
+
+                # Check if the object is to the right of the ROI
                 if tracked_obj.position[0] > (roi_x + roi_w):
-                    tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
+                    tracked_obj.outlet_assignment(roi_h, roi_y)
                     object_final_position.append(tracked_obj)
                     del active_ids[obj_id]
+
+                # Check if the object has disappeared and timed out
                 elif frame_index - tracked_obj.most_recent_frame > ui_app.timeout.get():
                     tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
                     object_final_position.append(tracked_obj)
                     del active_ids[obj_id]  # Expire IDs if no new position found
 
+            # Track position of current objects
             for obj in objects:
                 match_found = False
+
                 # Calculate new positions for tracked objects
                 for obj_id, tracked_obj in active_ids.items():
                     tracked_obj.object_id = obj_id
                     distance = calculate_distance(obj, tracked_obj)
+
+                    # Check if the next object position is within the centroid distance and to the right
                     if distance < ui_app.max_centroid_distance.get() and obj.position[0] > tracked_obj.position[0]:
                         tracked_obj.object_id = obj.object_id
-                        tracked_obj.most_recent_frame = frame_index  # Update last frame detected
+                        tracked_obj.most_recent_frame = frame_index
                         tracked_obj.update_frames_tracked()
                         match_found = True
-                        break
+                        break  # The object has been tracked, move to the next in the ID list.
 
+                # Include newly detected objects
                 if not match_found and obj.object_id is None:
                     if obj.enters_from_left(roi_x, roi_w):
                         obj.object_id = next_id
-                        obj.most_recent_frame = frame_index  # Set last frame detected
+                        obj.most_recent_frame = frame_index
                         obj.update_frames_tracked()
                         active_ids[next_id] = obj
                         next_id += 1
@@ -109,7 +126,14 @@ def nd2_mog_contours(nd2_file_path, ui_app, output_path="background_subtraction/
 
 
 def detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app):
-    # Detect objects on a frame following MOG background subtraction.
+    """
+    Detect objects from MOG2 background subtracted frames.
+    :param nd2_file_path:
+    :param frame_index:
+    :param backSub:
+    :param ui_app:
+    :return:
+    """
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
     with ND2Reader(nd2_file_path) as nd2_file:

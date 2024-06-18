@@ -14,7 +14,7 @@ import ui
 # Create UI and handle errors. Information from the UI is stored within the class-instance "app"
 # This class is initiated in ui.py
 try:
-    app = ui.create_UI()
+    app = ui.create_ui()
 except ValueError as e:
     print("An error occurred in the UI:", e)
     exit(1)
