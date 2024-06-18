@@ -1,13 +1,6 @@
-import os
-import cv2 as cv
-import csv
-import numpy as np
-from nd2reader import ND2Reader
-from typing import Any
-
 """
 ===================
-T R A C K I N G 
+T R A C K I N G
 ===================
 This is where most of the work is done. The main.py file will run this code using instructions from the UI.
 
@@ -26,11 +19,16 @@ Specific tracking nuance:
         files are high frame rate
             (High FPS = More data... try decreasing camera ROI to make files smaller at high FPS)
     If you decide to save overlays, you'll get a bunch of .png files in a folder.
-        hint: ffmpeg 
-    
-Read more: 
+        hint: ffmpeg
+
+Read more:
 https://github.com/bschelske/COUNT
 """
+import cv2 as cv
+import csv
+import numpy as np
+from nd2reader import ND2Reader
+import typing
 
 
 class DetectedObject:
@@ -108,7 +106,7 @@ class DetectedObject:
             self.DEP_outlet = False  # Not DEP Responsive
 
 
-def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtraction/"):
+def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtraction/") -> typing.Tuple[typing.List[DetectedObject], typing.List[DetectedObject]]:
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
@@ -129,7 +127,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtrac
             print(f"Frame: {frame_index}/{len(nd2_file) -1}")  # Track progress
 
             # Get Objects
-            objects, overlay_frame = detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app)
+            objects, overlay_frame = detect_objects(nd2_file_path, frame_index, backSub, ui_app)
 
             #     overlay_frames.append(overlay_frame)
             # for idx, overlay_frame in enumerate(overlay_frames):
@@ -187,7 +185,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtrac
     return object_final_position, active_id_trajectory
 
 
-def detect_objects_mog(nd2_file_path, frame_index, backSub, ui_app):
+def detect_objects(nd2_file_path, frame_index, backSub, ui_app):
 
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
@@ -238,29 +236,6 @@ def calculate_distance(detected_object1: DetectedObject, detected_object2: Detec
     distance = int(
         (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
-
-#
-# def get_frames(parent_dir: str):
-#     # Retrieves paths of frames from a directory as a list
-#     input_path_list = [os.path.join(parent_dir, f) for f in os.listdir(parent_dir)]
-#     frames = [cv.imread(f, cv.IMREAD_GRAYSCALE) for f in input_path_list]
-#     return frames
-
-
-def nd2_to_png(nd2_file_path: str, output_path: str, normalize=False):
-    with ND2Reader(nd2_file_path) as nd2_file:
-        # Print metadata
-        print("Metadata:")
-        print(nd2_file.metadata)
-        for frame_index in range(len(nd2_file)):
-            # Read frame data
-            frame_data = nd2_file[frame_index]
-            if normalize:
-                frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-            converted_path = f"{output_path}frame_{frame_index:03d}.png"
-            cv.imwrite(converted_path, frame_data)
-            print(f"{converted_path} saved", end='\r')
-        print("nd2 converted to png")
 
 
 def export_to_csv(object_history, csv_filename: str) -> None:

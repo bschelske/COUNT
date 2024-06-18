@@ -1,8 +1,4 @@
-import tkinter as tk
-from tkinter import filedialog
 import pandas as pd
-import os
-import re
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
