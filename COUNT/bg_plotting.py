@@ -125,6 +125,8 @@ class DataSelectionApp:
 
         The plotting styles are determined by this function. This function will break if you plot more than 3 files,
         to fix this, add more colors in the colors list. color codes can be found on matplotlib website
+
+        When plotting multiple files, the legend will use filenames as labels.
         """
         # fig, ax = plt.subplots()
         for index, file in enumerate(self.files):
