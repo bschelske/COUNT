@@ -44,6 +44,11 @@ class DataSelectionApp:
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_final_results)
         self.file_button.grid(row=3, column=2, padx=5, pady=5)
 
+        # Plot Multiple
+        tk.Label(self.master, text="... or plot multiple from folder").grid(row=4, column=0, padx=5, pady=5)
+        self.file_button = tk.Button(self.master, text="Choose Folder", command=self.plot_multiple)
+        self.file_button.grid(row=4, column=2, padx=5, pady=5)
+
         # Quit button
         self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
         self.quit_button.grid(row=8, column=3, padx=1, pady=10)
@@ -51,7 +56,7 @@ class DataSelectionApp:
     def choose_final_results(self):
         self.file_path = filedialog.askopenfilename()
         print("Selection:", self.file_path)
-        self.confirm_selections
+        self.confirm_selections()
         self.make_plot()
 
     def choose_trials_folder(self):
@@ -59,6 +64,12 @@ class DataSelectionApp:
         print("Selection:", self.folder_path.get())
         self.confirm_selections()
         self.consolidate_trials()
+
+    def plot_multiple(self):
+        self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
+        print("Selection:", self.folder_path.get())
+        self.confirm_selections()
+        self.make_plot()
 
     def input_handling(self):
         # Input handling
@@ -110,24 +121,33 @@ class DataSelectionApp:
         print("final_results.csv saved in COUNT/results folder. rename your file, so it isn't overwritten :)")
 
     def make_plot(self):
-        """Plot pDEP rate (%) vs frequency from final results csv
+        """Plot pDEP rate (%) vs frequency from final results csv.
 
-        The plotting styles are determined by this function."""
-        df = pd.read_csv(self.file_path)
-        x = df['frequency']
-        y = df['Percent True'] * 100
+        The plotting styles are determined by this function. This function will break if you plot more than 3 files,
+        to fix this, add more colors in the colors list. color codes can be found on matplotlib website
+        """
+        # fig, ax = plt.subplots()
+        for index, file in enumerate(self.files):
+            label = os.path.basename(file)[:-4]  # Get filename excluding .csv
+            print(label)
+            colors = ['r', 'b', 'k']  # add more colors if necessary
 
-        # Fit the Gaussian function to the data
-        popt, pcov = curve_fit(gaussian, x, y, p0=[1, np.mean(x), np.std(x)])
-        plt.plot(x, gaussian(x, *popt), 'b-', label='Fitted Gaussian')
+            df = pd.read_csv(file)
+            x = df['frequency']
+            y = df['Percent True'] * 100
 
-        # plt.scatter(x,y)
-        # plt.show()
-        plt.plot(x, y, label='BRAF', marker='o', color='blue', linestyle='none')  # linestyle='dotted'
+            # Fit the Gaussian function to the data
+            popt, pcov = curve_fit(gaussian, x, y, p0=[1, np.mean(x), np.std(x)])
+            plt.plot(x, gaussian(x, *popt), colors[index]+'-')  # label='Fitted Gaussian'
+            # Plot the data
+            plt.plot(x, y, label=label, color=colors[index], marker='o', linestyle='none')  # linestyle='dotted'
 
-        # derivative = np.gradient(y, x)
-        # plt.plot(derivative, label='derivative', marker='s', color='red',
-        #          linestyle='dotted')
+            # Plot the derivative
+            # derivative = np.gradient(y, x)
+            # plt.plot(derivative, label='derivative', marker='s', color='red',
+            #          linestyle='dotted')
+
+            df = None
 
         # # Define zooming in or fullscale
         y_limit = 100
@@ -151,7 +171,6 @@ class DataSelectionApp:
         # Customize main/labelled axis ticks for y-axis
         plt.yticks(np.arange(0, y_limit + 1, increment_size), fontsize=12)  # Adjust range and step as needed for y-axis
         plt.tick_params(axis='y', length=4, direction='in')
-
         plt.ylim(-5, y_limit + 1)  # Adjust y-axis limits to start a few pixels higher than the corner
 
         # Label every other tick starting from 0 for y-axis
@@ -171,9 +190,8 @@ class DataSelectionApp:
         ax.spines['right'].set_visible(False)  # Hide right border
 
         # Place legend to the right side of the plot at the top
-        # plt.legend(loc='upper left', bbox_to_anchor=(1.02, 1), frameon=False,
-        #            borderaxespad=0)  # Adjust location as needed
-        # plt.legend()  # Adjust location as needed
+        if len(self.files) > 1:
+            plt.legend(frameon=False, borderaxespad=0)  # Adjust location as needed
 
         plt.show()
         pass
