@@ -110,69 +110,52 @@ class DetectedObject:
 
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         typing.List[DetectedObject], typing.List[DetectedObject]]:
+
     current_objects = {}
     object_final_position = []
     active_id_list = []
-    ROI = ui_app.get_roi()
-    roi_x, roi_y, roi_h, roi_w = ROI
+    roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
     next_id = 1
     overlay_frames = []
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        # Print metadata
-        print("Metadata:")
-        print(nd2_file.metadata)
-
-        # Loop through each frame in the nd2 file
+        total_frames = len(nd2_file)
         for frame_number, frame_data in enumerate(nd2_file):
-            print(f"Frame: {frame_number}/{len(nd2_file) - 1}")  # Track progress
+            print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")  # Track progress
 
             # Get Objects, add all objects to end of active_id_trajectory list
             detected_objects_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
                                                                   backSub=backSub, ui_app=ui_app)
             active_id_list.extend(detected_objects_list)
 
-            # Remove IDs of expired objects
-            for obj_id, tracked_obj in list(current_objects.items()):
-                tracked_obj.object_id = obj_id
-
-                # Check if the object is to the right of the ROI
-                if tracked_obj.position[0] > (roi_x + roi_w):
-                    tracked_obj.outlet_assignment(roi_h, roi_y)
-                    object_final_position.append(tracked_obj)
-                    del current_objects[obj_id]
-
-                # Check if the object has disappeared and timed out
-                elif frame_number - tracked_obj.most_recent_frame > ui_app.timeout.get():
-                    tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
-                    object_final_position.append(tracked_obj)
-                    del current_objects[obj_id]  # Expire IDs if no new position found
+            # Expire objects that are currently detected
+            current_objects, object_final_position = expire_objects(current_objects, object_final_position, frame_number, ui_app)
 
             # Track position of current objects
-            for obj in detected_objects_list:
+            for detected_object in detected_objects_list:
                 match_found = False
 
                 # Calculate new positions for tracked objects
                 for obj_id, tracked_obj in current_objects.items():
                     tracked_obj.object_id = obj_id
-                    distance = calculate_distance(obj, tracked_obj)
+                    distance = calculate_distance(detected_object, tracked_obj)
 
                     # Check if the next object position is within the centroid distance and to the right
-                    if distance < ui_app.max_centroid_distance.get() and obj.position[0] > tracked_obj.position[0]:
-                        tracked_obj.object_id = obj.object_id
+                    if distance < ui_app.max_centroid_distance.get() and detected_object.position[0] > tracked_obj.position[0]:
+                        tracked_obj.object_id = detected_object.object_id
                         tracked_obj.most_recent_frame = frame_number
                         tracked_obj.update_frames_tracked()
                         match_found = True
                         break  # The object has been tracked, move to the next in the ID list.
 
                 # Include newly detected objects
-                if not match_found and obj.object_id is None:
-                    if obj.enters_from_left(roi_x, roi_w):
-                        obj.object_id = next_id
-                        obj.most_recent_frame = frame_number
-                        current_objects[next_id] = obj
+                if not match_found and detected_object.object_id is None:
+                    if detected_object.enters_from_left(roi_x, roi_w):
+                        detected_object.object_id = next_id
+                        detected_object.most_recent_frame = frame_number
+                        current_objects[next_id] = detected_object
                         next_id += 1
 
             if ui_app.save_overlay.get():
@@ -182,8 +165,8 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
             overlay_frames.append(overlay_frame)
 
         # Draw IDs
-        for obj_id, tracked_obj in current_objects.items():
-            tracked_obj.object_id = obj_id
+        # for obj_id, tracked_obj in current_objects.items():
+        #     tracked_obj.object_id = obj_id
 
         if ui_app.save_overlay.get():
             for idx, overlay_frame in enumerate(overlay_frames):
@@ -194,12 +177,10 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
 
 def detect_objects(frame_data, frame_index, backSub, ui_app):
-    ROI = ui_app.get_roi()
-    roi_x, roi_y, roi_h, roi_w = ROI
-
-    frame_copy = frame_data.copy()  # Copy for overlay later...
-    frame_copy = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-    frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2BGR)
+    frame_copy = frame_data.copy()
+    if ui_app.save_overlay.get():
+        frame_copy = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+        frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2BGR)
 
     # Do background subtraction, and normalize for canny
     foreground_mask = backSub.apply(frame_copy)
@@ -214,7 +195,7 @@ def detect_objects(frame_data, frame_index, backSub, ui_app):
     # Draw filled contours on a mask using bounding circles
     for cnt in contours:
         (x, y), radius = cv.minEnclosingCircle(cnt)
-        if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)) and radius > ui_app.cell_radius.get():
+        if coord_in_roi((x, y), ui_app) and radius > ui_app.cell_radius.get():
             center = (int(x), int(y))
             radius = int(radius + ui_app.cell_radius.get() // 2)
             cv.circle(mask, center, radius, 255, -1)
@@ -226,6 +207,7 @@ def detect_objects(frame_data, frame_index, backSub, ui_app):
     for cnt in contours:
         if ui_app.save_overlay.get():
             cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+
         x, y, w, h = cv.boundingRect(cnt)
         objects.append(
             DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
@@ -240,6 +222,15 @@ def calculate_distance(detected_object1: DetectedObject, detected_object2: Detec
     distance = int(
         (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
+
+
+def coord_in_roi(coord, ui_app):
+    roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
+    x, y = coord
+    if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)):
+        return True
+    else:
+        return False
 
 
 def export_to_csv(object_history, csv_filename: str) -> None:
@@ -263,4 +254,38 @@ def export_to_csv(object_history, csv_filename: str) -> None:
                 'frames_tracked': obj.frames_tracked,
                 'DEP_response': obj.DEP_outlet
             })
-        print(f"Cells counted: {count}")
+        print(f"\nCells counted: {count}")
+
+
+def expire_objects(current_objects, object_final_position, frame_number, ui_app):
+    roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
+
+    for obj_id, tracked_obj in list(current_objects.items()):
+        tracked_obj.object_id = obj_id
+
+        # Check if the object is to the right of the ROI
+        if tracked_obj.position[0] > (roi_x + roi_w):
+            tracked_obj.outlet_assignment(roi_h, roi_y)
+            object_final_position.append(tracked_obj)
+            del current_objects[obj_id]
+
+        # Check if the object has disappeared and timed out
+        elif frame_number - tracked_obj.most_recent_frame > ui_app.timeout.get():
+            tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
+            object_final_position.append(tracked_obj)
+            del current_objects[obj_id]  # Expire IDs if no new position found
+    return current_objects, object_final_position
+
+# def update_tracked_objects(current_objects, detected_object, frame_number, ui_app):
+#     # Calculate new positions for tracked objects
+#     for obj_id, tracked_obj in current_objects.items():
+#         tracked_obj.object_id = obj_id
+#         distance = calculate_distance(detected_object, tracked_obj)
+#
+#         # Check if the next object position is within the centroid distance and to the right
+#         if distance < ui_app.max_centroid_distance.get() and detected_object.position[0] > tracked_obj.position[0]:
+#             tracked_obj.object_id = detected_object.object_id
+#             tracked_obj.most_recent_frame = frame_number
+#             tracked_obj.update_frames_tracked()
+#             return True
+
