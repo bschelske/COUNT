@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog
 import cv2
 import os
-from nd2reader import ND2Reader
+from pims import ND2Reader_SDK
 import numpy as np
 
 """
@@ -22,6 +22,7 @@ class ROISelectionApp:
         self.file_path = ""
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
         self.csv_folder_path = tk.StringVar(value="results/")  # Default csv save path
+        self.overlay_path = ""
         self.roi_x = tk.IntVar(value=10)  # Default value for ROI X
         self.roi_y = tk.IntVar(value=0)   # Default value for ROI Y
         self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
@@ -135,8 +136,6 @@ class ROISelectionApp:
     def on_checkbox_click(self):
         if self.save_overlay.get() == 1:
             print("An overlay of tracked objects will be saved!")
-        else:
-            print("An overlay of tracked objects will not be saved")
 
     def input_handling(self):
         # Handles if the selection was for a folder or a file.
@@ -151,6 +150,8 @@ class ROISelectionApp:
 
         # Ensure the output directory exists
         os.makedirs(self.csv_folder_path.get(), exist_ok=True)
+        os.makedirs(self.csv_folder_path.get()+"overlay/", exist_ok=True)
+        self.overlay_path = self.csv_folder_path.get()+"overlay/"
         os.makedirs(self.csv_folder_path.get()+"final_results/", exist_ok=True)
 
         print(".csv results save path:", self.csv_folder_path.get())
@@ -176,7 +177,7 @@ class ROISelectionApp:
         else:
             self.input_handling()
 
-        with ND2Reader(self.files[0]) as nd2_file:
+        with ND2Reader_SDK(self.files[0]) as nd2_file:
             frame_data = nd2_file[0]
             image = frame_data
             cv2.namedWindow("Select ROI. Press enter to confirm, 'c' to cancel", cv2.WINDOW_NORMAL)
@@ -218,7 +219,7 @@ class ROISelectionApp:
     def edge_detection_handling(self, frame_index):
         """Edge detection for UI preview"""
         backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        with ND2Reader(self.files[0]) as nd2_file:
+        with ND2Reader_SDK(self.files[0]) as nd2_file:
             # MOG2 Background Method:
             for frame in nd2_file[:frame_index+1]:  # First five frames to calculate background
                 frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
@@ -250,7 +251,7 @@ class ROISelectionApp:
             for cnt in contours:
                 cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
 
-            cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {len(contours)}"), (int(self.roi_width.get()*.2), int(self.roi_width.get()*.2)), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 0), 3, cv2.LINE_AA)
+            cv2.putText(frame_copy, str(f"Frame {frame_index+1} Objects: {len(contours)}"), (10,40), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
         return frame_copy
 
     def quit_ui(self):

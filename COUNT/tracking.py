@@ -27,7 +27,7 @@ https://github.com/bschelske/COUNT
 import cv2 as cv
 import csv
 import numpy as np
-from nd2reader import ND2Reader
+from pims import ND2Reader_SDK
 import typing
 
 
@@ -70,6 +70,7 @@ class DetectedObject:
     outlet_assignment(roi_h: float, roi_y: float) -> None
         Assigns the DEP outlet status based on the object's position within the ROI.
     """
+
     def __init__(self, object_id, position, size, most_recent_frame, DEP_outlet):
         self.object_id = object_id
         self.position = position
@@ -106,17 +107,19 @@ class DetectedObject:
             self.DEP_outlet = False  # Not DEP Responsive
 
 
-def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtraction/") -> typing.Tuple[typing.List[DetectedObject], typing.List[DetectedObject]]:
+def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
+    typing.List[DetectedObject], typing.List[DetectedObject]]:
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
     next_id = 1
+    overlay_frames = []
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
-    with ND2Reader(nd2_file_path) as nd2_file:
+    with ND2Reader_SDK(nd2_file_path) as nd2_file:
         # Print metadata
         print("Metadata:")
         print(nd2_file.metadata)
@@ -124,15 +127,10 @@ def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtrac
 
         # Loop through each frame in the nd2 file
         for frame_index in range(len(nd2_file)):
-            print(f"Frame: {frame_index}/{len(nd2_file) -1}")  # Track progress
+            print(f"Frame: {frame_index}/{len(nd2_file) - 1}")  # Track progress
 
             # Get Objects
             objects, overlay_frame = detect_objects(nd2_file_path, frame_index, backSub, ui_app)
-
-            #     overlay_frames.append(overlay_frame)
-            # for idx, overlay_frame in enumerate(overlay_frames):
-            #     save_path = output_path + f"{idx:03d}.png"
-            #     cv.imwrite(save_path, overlay_frame)
 
             active_id_trajectory.extend(objects)
 
@@ -182,14 +180,23 @@ def nd2_mog_contours(nd2_file_path: str, ui_app, output_path="background_subtrac
         for obj_id, tracked_obj in active_ids.items():
             tracked_obj.object_id = obj_id
 
+        if ui_app.save_overlay:
+            cv.putText(overlay_frame, str(f"Frame {frame_index + 1} Objects: {len(active_ids.items())}\nTotal: {len(object_final_position)}"),
+                       (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+                       (0, 0, 0), 2, cv.LINE_AA)
+            overlay_frames.append(overlay_frame)
+
+            for idx, overlay_frame in enumerate(overlay_frames):
+                save_path = ui_app.overlay_path + f"{idx:03d}.png"
+                cv.imwrite(save_path, overlay_frame)
+
     return object_final_position, active_id_trajectory
 
 
 def detect_objects(nd2_file_path, frame_index, backSub, ui_app):
-
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
-    with ND2Reader(nd2_file_path) as nd2_file:
+    with ND2Reader_SDK(nd2_file_path) as nd2_file:
         # Get current frame
         frame_data = nd2_file[frame_index]
         frame = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
@@ -210,19 +217,20 @@ def detect_objects(nd2_file_path, frame_index, backSub, ui_app):
             (x, y), radius = cv.minEnclosingCircle(cnt)
             if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)) and radius > ui_app.cell_radius.get():
                 center = (int(x), int(y))
-                radius = int(radius + ui_app.cell_radius.get())
-                cv.circle(mask, center, radius, (255), -1)
+                radius = int(radius + ui_app.cell_radius.get() // 2)
+                cv.circle(mask, center, radius, 255, -1)
 
         # find the contours on the mask (with solid drawn shapes) and draw outline on input image
         objects = []
         contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
         for cnt in contours:
-            # cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+            if ui_app.save_overlay:
+                cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+                # cv.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}\nTotal: {}"),
+                #            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+                #            (0, 0, 0), 2, cv.LINE_AA)
             x, y, w, h = cv.boundingRect(cnt)
-            # cv.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}"),
-            #             (int(ui_app.roi_width.get() * .2), int(ui_app.roi_width.get() * .2)), cv.FONT_HERSHEY_SIMPLEX, 2,
-            #             (0, 0, 0), 3, cv.LINE_AA)
             objects.append(
                 DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
                                DEP_outlet=None))
