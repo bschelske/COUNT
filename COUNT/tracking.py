@@ -52,9 +52,6 @@ class DetectedObject:
 
     Methods
     -------
-    update_position(new_position: Tuple[float, float]) -> None
-        Updates the position of the object.
-
     update_frames_tracked() -> None
         Increments the frame tracking counter.
 
@@ -77,10 +74,14 @@ class DetectedObject:
         self.size = size
         self.most_recent_frame = most_recent_frame
         self.DEP_outlet = DEP_outlet
-        self.frames_tracked = 0
+        self.frames_tracked = 1
+        self.position_history = {self.most_recent_frame: self.position}
 
-    def update_position(self, new_position):
+    def update(self, most_recent_frame, new_position):
+        self.frames_tracked += 1
+        self.most_recent_frame = most_recent_frame
         self.position = new_position
+        self.position_history[self.most_recent_frame] = self.position
 
     def update_frames_tracked(self):
         self.frames_tracked += 1
@@ -109,14 +110,13 @@ class DetectedObject:
 
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         typing.List[DetectedObject], typing.List[DetectedObject]]:
-    active_ids = {}
+    current_objects = {}
     object_final_position = []
-    active_id_trajectory = []
+    active_id_list = []
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
     next_id = 1
     overlay_frames = []
-    print(ui_app.save_overlay.get())
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
@@ -124,46 +124,45 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         # Print metadata
         print("Metadata:")
         print(nd2_file.metadata)
-        print(nd2_file)
 
         # Loop through each frame in the nd2 file
-        for frame_index in range(len(nd2_file)):
-            print(f"Frame: {frame_index}/{len(nd2_file) - 1}")  # Track progress
+        for frame_number, frame_data in enumerate(nd2_file):
+            print(f"Frame: {frame_number}/{len(nd2_file) - 1}")  # Track progress
 
-            # Get Objects
-            objects, overlay_frame = detect_objects(nd2_file_path, frame_index, backSub, ui_app)
-
-            active_id_trajectory.extend(objects)
+            # Get Objects, add all objects to end of active_id_trajectory list
+            detected_objects_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
+                                                                  backSub=backSub, ui_app=ui_app)
+            active_id_list.extend(detected_objects_list)
 
             # Remove IDs of expired objects
-            for obj_id, tracked_obj in list(active_ids.items()):
+            for obj_id, tracked_obj in list(current_objects.items()):
                 tracked_obj.object_id = obj_id
 
                 # Check if the object is to the right of the ROI
                 if tracked_obj.position[0] > (roi_x + roi_w):
                     tracked_obj.outlet_assignment(roi_h, roi_y)
                     object_final_position.append(tracked_obj)
-                    del active_ids[obj_id]
+                    del current_objects[obj_id]
 
                 # Check if the object has disappeared and timed out
-                elif frame_index - tracked_obj.most_recent_frame > ui_app.timeout.get():
+                elif frame_number - tracked_obj.most_recent_frame > ui_app.timeout.get():
                     tracked_obj.outlet_assignment(roi_h, roi_y)  # Check outlet
                     object_final_position.append(tracked_obj)
-                    del active_ids[obj_id]  # Expire IDs if no new position found
+                    del current_objects[obj_id]  # Expire IDs if no new position found
 
             # Track position of current objects
-            for obj in objects:
+            for obj in detected_objects_list:
                 match_found = False
 
                 # Calculate new positions for tracked objects
-                for obj_id, tracked_obj in active_ids.items():
+                for obj_id, tracked_obj in current_objects.items():
                     tracked_obj.object_id = obj_id
                     distance = calculate_distance(obj, tracked_obj)
 
                     # Check if the next object position is within the centroid distance and to the right
                     if distance < ui_app.max_centroid_distance.get() and obj.position[0] > tracked_obj.position[0]:
                         tracked_obj.object_id = obj.object_id
-                        tracked_obj.most_recent_frame = frame_index
+                        tracked_obj.most_recent_frame = frame_number
                         tracked_obj.update_frames_tracked()
                         match_found = True
                         break  # The object has been tracked, move to the next in the ID list.
@@ -172,19 +171,18 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 if not match_found and obj.object_id is None:
                     if obj.enters_from_left(roi_x, roi_w):
                         obj.object_id = next_id
-                        obj.most_recent_frame = frame_index
-                        obj.update_frames_tracked()
-                        active_ids[next_id] = obj
+                        obj.most_recent_frame = frame_number
+                        current_objects[next_id] = obj
                         next_id += 1
 
             if ui_app.save_overlay.get():
-                cv.putText(overlay_frame, str(f"Objects: {len(active_ids.items())} Total: {len(object_final_position)}"),
+                cv.putText(overlay_frame, str(f"Objects: {len(current_objects.items())} Total: {len(object_final_position)}"),
                            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
                            (0, 0, 0), 2, cv.LINE_AA)
             overlay_frames.append(overlay_frame)
 
         # Draw IDs
-        for obj_id, tracked_obj in active_ids.items():
+        for obj_id, tracked_obj in current_objects.items():
             tracked_obj.object_id = obj_id
 
         if ui_app.save_overlay.get():
@@ -192,47 +190,46 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
 
-    return object_final_position, active_id_trajectory
+    return object_final_position, active_id_list
 
 
-def detect_objects(nd2_file_path, frame_index, backSub, ui_app):
+def detect_objects(frame_data, frame_index, backSub, ui_app):
     ROI = ui_app.get_roi()
     roi_x, roi_y, roi_h, roi_w = ROI
-    with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        # Get current frame
-        frame_data = nd2_file[frame_index]
-        frame = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        frame_copy = frame.copy()  # Copy for overlay later...
-        frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2BGR)
 
-        # Do background subtraction, and normalize for canny
-        foreground_mask = backSub.apply(frame)
-        normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
-        contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+    frame_copy = frame_data.copy()  # Copy for overlay later...
+    frame_copy = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+    frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2BGR)
 
-        # create an empty mask
-        mask = np.zeros(frame_data.shape[:2], dtype=np.uint8)
+    # Do background subtraction, and normalize for canny
+    foreground_mask = backSub.apply(frame_copy)
+    normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+    canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
+    contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
 
-        # Draw filled contours on a mask using bounding circles
-        for cnt in contours:
-            (x, y), radius = cv.minEnclosingCircle(cnt)
-            if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)) and radius > ui_app.cell_radius.get():
-                center = (int(x), int(y))
-                radius = int(radius + ui_app.cell_radius.get() // 2)
-                cv.circle(mask, center, radius, 255, -1)
+    # Handle overlapping objects:
+    # create an empty mask
+    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
 
-        # find the contours on the mask (with solid drawn shapes) and draw outline on input image
-        objects = []
-        contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    # Draw filled contours on a mask using bounding circles
+    for cnt in contours:
+        (x, y), radius = cv.minEnclosingCircle(cnt)
+        if (roi_x < x < (roi_x + roi_w)) and (roi_y < y < (roi_y + roi_h)) and radius > ui_app.cell_radius.get():
+            center = (int(x), int(y))
+            radius = int(radius + ui_app.cell_radius.get() // 2)
+            cv.circle(mask, center, radius, 255, -1)
 
-        for cnt in contours:
-            if ui_app.save_overlay.get():
-                cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-            x, y, w, h = cv.boundingRect(cnt)
-            objects.append(
-                DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
-                               DEP_outlet=None))
+    # find the contours on the mask (with solid drawn shapes) and draw outline on input image
+    objects = []
+    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+    for cnt in contours:
+        if ui_app.save_overlay.get():
+            cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+        x, y, w, h = cv.boundingRect(cnt)
+        objects.append(
+            DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,
+                           DEP_outlet=None))
     return objects, frame_copy
 
 
