@@ -271,11 +271,10 @@ def create_plotting_ui():
 
 def main():
     app = create_plotting_ui()
-
-
     # list = ['test 120_khz','95kHz8ampHICONC019_results', '25 kHz_7.2Vp-p', 'A375_7.2Vpp_10kHz001', 'A375 200kHz 5.8Vp-p_proof', '23Feb2024 Non RosetteSep 20kHz001']
     # for file in list:
     #     print(file, get_frequency(file))
+
 
 if __name__ == "__main__":
     main()

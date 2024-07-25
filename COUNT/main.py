@@ -6,6 +6,8 @@ C. O. U. N. T.
 ===================
 Check the readme on gitHub for more information. https://github.com/bschelske/COUNT
     "Ah- ah- ah!"
+
+This is the file that is meant to be run.
 """
 import os
 from COUNT import ui, tracking
