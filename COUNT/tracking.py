@@ -111,11 +111,11 @@ class DetectedObject:
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         typing.List[DetectedObject], typing.List[DetectedObject]]:
 
-    current_objects = {}
-    object_final_position = []
-    active_id_list = []
+    objects_in_frame_dict = {}
+    object_final_position_list = []
+    object_history_list = []
     roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
-    next_id = 1
+    next_new_id = 1
     overlay_frames = []
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
@@ -125,41 +125,27 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         for frame_number, frame_data in enumerate(nd2_file):
             print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")  # Track progress
 
-            # Get Objects, add all objects to end of active_id_trajectory list
-            detected_objects_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
+            # Get objects in frame, add all objects to end of active_id_trajectory list
+            objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
                                                                   backSub=backSub, ui_app=ui_app)
-            active_id_list.extend(detected_objects_list)
+            object_history_list.extend(objects_in_frame_list)
 
             # Expire objects that are currently detected
-            current_objects, object_final_position = expire_objects(current_objects, object_final_position, frame_number, ui_app)
+            objects_in_frame_dict, object_final_position_list = expire_objects(objects_in_frame_dict, object_final_position_list, frame_number, ui_app)
 
             # Track position of current objects
-            for detected_object in detected_objects_list:
-                match_found = False
-
+            for object_in_frame in objects_in_frame_list:
                 # Calculate new positions for tracked objects
-                for obj_id, tracked_obj in current_objects.items():
-                    tracked_obj.object_id = obj_id
-                    distance = calculate_distance(detected_object, tracked_obj)
-
-                    # Check if the next object position is within the centroid distance and to the right
-                    if distance < ui_app.max_centroid_distance.get() and detected_object.position[0] > tracked_obj.position[0]:
-                        tracked_obj.object_id = detected_object.object_id
-                        tracked_obj.most_recent_frame = frame_number
-                        tracked_obj.update_frames_tracked()
-                        match_found = True
-                        break  # The object has been tracked, move to the next in the ID list.
+                match_found = update_tracked_objects(objects_in_frame_dict, object_in_frame, frame_number, next_new_id, ui_app)
 
                 # Include newly detected objects
-                if not match_found and detected_object.object_id is None:
-                    if detected_object.enters_from_left(roi_x, roi_w):
-                        detected_object.object_id = next_id
-                        detected_object.most_recent_frame = frame_number
-                        current_objects[next_id] = detected_object
-                        next_id += 1
+                if not match_found and object_in_frame.object_id is None:
+                    if object_in_frame.enters_from_left(roi_x, roi_w):
+                        objects_in_frame_dict, next_new_id = add_new_objects(object_in_frame, objects_in_frame_dict, next_new_id,
+                                                           frame_number)
 
             if ui_app.save_overlay.get():
-                cv.putText(overlay_frame, str(f"Objects: {len(current_objects.items())} Total: {len(object_final_position)}"),
+                cv.putText(overlay_frame, str(f"Objects: {len(objects_in_frame_dict.items())} Total: {len(object_final_position_list)}"),
                            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
                            (0, 0, 0), 2, cv.LINE_AA)
             overlay_frames.append(overlay_frame)
@@ -173,7 +159,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
 
-    return object_final_position, active_id_list
+    return object_final_position_list, object_history_list
 
 
 def detect_objects(frame_data, frame_index, backSub, ui_app):
@@ -276,16 +262,27 @@ def expire_objects(current_objects, object_final_position, frame_number, ui_app)
             del current_objects[obj_id]  # Expire IDs if no new position found
     return current_objects, object_final_position
 
-# def update_tracked_objects(current_objects, detected_object, frame_number, ui_app):
-#     # Calculate new positions for tracked objects
-#     for obj_id, tracked_obj in current_objects.items():
-#         tracked_obj.object_id = obj_id
-#         distance = calculate_distance(detected_object, tracked_obj)
-#
-#         # Check if the next object position is within the centroid distance and to the right
-#         if distance < ui_app.max_centroid_distance.get() and detected_object.position[0] > tracked_obj.position[0]:
-#             tracked_obj.object_id = detected_object.object_id
-#             tracked_obj.most_recent_frame = frame_number
-#             tracked_obj.update_frames_tracked()
-#             return True
 
+def update_tracked_objects(current_objects, detected_object, frame_number, next_id, ui_app):
+    # Calculate new positions for tracked objects
+    match_found = False
+    for obj_id, tracked_obj in current_objects.items():
+        tracked_obj.object_id = obj_id
+        distance = calculate_distance(detected_object, tracked_obj)
+
+        # Check if the next object position is within the centroid distance and to the right
+        if distance < ui_app.max_centroid_distance.get() and detected_object.position[0] > tracked_obj.position[0]:
+            tracked_obj.object_id = detected_object.object_id
+            tracked_obj.most_recent_frame = frame_number
+            tracked_obj.update_frames_tracked()
+            match_found = True
+            break
+    return match_found
+
+
+def add_new_objects(detected_object, current_objects, next_id, frame_number):
+    detected_object.object_id = next_id
+    detected_object.most_recent_frame = frame_number
+    current_objects[next_id] = detected_object
+    next_id += 1
+    return current_objects, next_id
