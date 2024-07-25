@@ -108,7 +108,7 @@ class DetectedObject:
 
 
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
-    typing.List[DetectedObject], typing.List[DetectedObject]]:
+        typing.List[DetectedObject], typing.List[DetectedObject]]:
     active_ids = {}
     object_final_position = []
     active_id_trajectory = []
@@ -116,6 +116,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     roi_x, roi_y, roi_h, roi_w = ROI
     next_id = 1
     overlay_frames = []
+    print(ui_app.save_overlay.get())
 
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
@@ -176,16 +177,17 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                         active_ids[next_id] = obj
                         next_id += 1
 
+            if ui_app.save_overlay.get():
+                cv.putText(overlay_frame, str(f"Objects: {len(active_ids.items())} Total: {len(object_final_position)}"),
+                           (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+                           (0, 0, 0), 2, cv.LINE_AA)
+            overlay_frames.append(overlay_frame)
+
         # Draw IDs
         for obj_id, tracked_obj in active_ids.items():
             tracked_obj.object_id = obj_id
 
-        if ui_app.save_overlay:
-            cv.putText(overlay_frame, str(f"Frame {frame_index + 1} Objects: {len(active_ids.items())}\nTotal: {len(object_final_position)}"),
-                       (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                       (0, 0, 0), 2, cv.LINE_AA)
-            overlay_frames.append(overlay_frame)
-
+        if ui_app.save_overlay.get():
             for idx, overlay_frame in enumerate(overlay_frames):
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
@@ -225,11 +227,8 @@ def detect_objects(nd2_file_path, frame_index, backSub, ui_app):
         contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
 
         for cnt in contours:
-            if ui_app.save_overlay:
+            if ui_app.save_overlay.get():
                 cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-                # cv.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}\nTotal: {}"),
-                #            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                #            (0, 0, 0), 2, cv.LINE_AA)
             x, y, w, h = cv.boundingRect(cnt)
             objects.append(
                 DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index,

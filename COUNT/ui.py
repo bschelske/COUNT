@@ -32,7 +32,7 @@ class ROISelectionApp:
         self.max_centroid_distance = tk.IntVar(value=70)  # max distance an object will travel between frames (px)
         self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost (frames)
         self.cell_radius = tk.IntVar(value=6)
-        self.save_overlay = tk.IntVar()
+        self.save_overlay = tk.BooleanVar()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_widgets()  # This is the part of the UI you can see
 
@@ -109,7 +109,7 @@ class ROISelectionApp:
         self.cell_radius_entry.grid(row=6, column=3, padx=5, pady=5)
 
         # Save overlay checkbox
-        self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay, command=self.on_checkbox_click)
+        self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,  onvalue=True, offvalue=False, command=self.on_checkbox_click)
         self.save_overlay_checkbox.grid(row=8, column=1, columnspan=1, padx=5, pady=5)
 
         # Button to confirm selections
