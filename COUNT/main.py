@@ -38,6 +38,5 @@ def main():
         print(f"{csv_filename} saved")
 
 
-
 if __name__ == '__main__':
     main()
