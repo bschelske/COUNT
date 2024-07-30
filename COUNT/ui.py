@@ -24,14 +24,14 @@ class ROISelectionApp:
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
         self.csv_folder_path = tk.StringVar(value="results/")  # Default csv save path
         self.overlay_path = ""
-        self.roi_x = tk.IntVar(value=10)  # Default value for ROI X
+        self.roi_x = tk.IntVar(value=0)  # Default value for ROI X
         self.roi_y = tk.IntVar(value=0)   # Default value for ROI Y
         self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
-        self.roi_width = tk.IntVar(value=400)    # Default value for ROI Width
+        self.roi_width = tk.IntVar(value=2048)    # Default value for ROI Width
         self.canny_upper = tk.IntVar(value=255)  # Default value for upper canny threshold (3:1 ratio)
         self.canny_lower = tk.IntVar(value=85)    # Default value for lower canny threshold
         self.max_centroid_distance = tk.IntVar(value=70)  # max distance an object will travel between frames (px)
-        self.timeout = tk.IntVar(value=7)    # How long before an object is considered lost (frames)
+        self.timeout = tk.IntVar(value=5)    # How long before an object is considered lost (frames)
         self.cell_radius = tk.IntVar(value=6)
         self.save_overlay = tk.BooleanVar()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
