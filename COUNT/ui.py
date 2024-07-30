@@ -1,9 +1,10 @@
+import os
 import tkinter as tk
 from tkinter import filedialog
+
 import cv2
-import os
-from pims import ND2Reader_SDK
 import numpy as np
+from pims import ND2Reader_SDK
 
 """
 This code handles the creation of the user interface (UI).
