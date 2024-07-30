@@ -24,11 +24,12 @@ Specific tracking nuance:
 Read more:
 https://github.com/bschelske/COUNT
 """
-import cv2 as cv
 import csv
+import typing
+
+import cv2 as cv
 import numpy as np
 from pims import ND2Reader_SDK
-import typing
 
 
 class DetectedObject:
@@ -74,7 +75,7 @@ class DetectedObject:
         self.size = size
         self.most_recent_frame = most_recent_frame
         self.DEP_outlet = ''
-        self.frames_tracked = 1
+        self.frames_tracked = 0
         self.position_history = {self.most_recent_frame: self.position}
         self.displacement_history = []
         self.avg_displacement = None
@@ -102,7 +103,7 @@ class DetectedObject:
             return False
 
     def exits_right(self, roi_x, roi_w):
-        if roi_x + roi_w < self.position[0]:
+        if roi_x + roi_w <= self.position[0]:
             return True
         else:
             return False
@@ -118,7 +119,7 @@ class DetectedObject:
 
 
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
-        typing.List[DetectedObject], typing.List[DetectedObject]]:
+    typing.List[DetectedObject], typing.List[DetectedObject]]:
     """
     Process ND2 file to detect and track objects across frames.
 
@@ -131,7 +132,8 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
             - A list of final positions of tracked objects.
             - A list of all detected objects across frames.
     """
-    objects_in_memory_dict = {}  # {object_id: object}
+    surviving_objects_dict = {}  # {object_id: object}
+    expired_objects_dict = {}  # {object_id: object}
     object_final_position_list = []
     object_history_list = []
     roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
@@ -151,37 +153,40 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                                                                   backSub=backSub, ui_app=ui_app)
             object_history_list.extend(objects_in_frame_list)
 
-            # print(f"Frame: {frame_number} objects_in_frame_list: {len(objects_in_frame_list)} objects_in_frame_dict: {len(objects_in_memory_dict)}")
+            # print(f"Frame: {frame_number} objects_in_frame_list: {len(objects_in_frame_list)} objects_in_frame_dict: {len(surviving_objects_dict)}")
 
             # Expire outgoing objects
-            objects_in_memory_dict, object_final_position_list = expire_objects(objects_in_memory_dict,
-                                                                               object_final_position_list,
-                                                                               frame_number, image_h, ui_app)
+            if surviving_objects_dict:
+                surviving_objects_dict, expired_objects_dict = expire_objects(surviving_objects_dict,
+                                                                                expired_objects_dict,
+                                                                                frame_number, image_h, ui_app)
 
             # Match current objects to object history
             for object_in_frame in objects_in_frame_list:
-                no_match = match_tracked_objects(objects_in_memory_dict, object_in_frame, frame_number,
-                                                    ui_app)
-
+                no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
+                                                 ui_app)
                 # Add incoming objects
                 if no_match:
-                    objects_in_memory_dict, next_new_id = add_new_objects(object_in_frame, objects_in_memory_dict,
-                                                                         next_new_id,
-                                                                         frame_number)
+                    surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
+                                                                          next_new_id,
+                                                                          frame_number)
 
             if ui_app.save_overlay.get():
                 cv.putText(overlay_frame,
-                           str(f"Objects: {len(objects_in_memory_dict.items())} Total: {len(object_final_position_list)}"),
+                           str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
                            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
                            (0, 0, 0), 2, cv.LINE_AA)
-            overlay_frames.append(overlay_frame)
+                overlay_frames.append(overlay_frame)
+
+        expired_objects_dict.update(surviving_objects_dict)
 
         if ui_app.save_overlay.get():
+            print(f"overlay saving in {ui_app.overlay_path}")
             for idx, overlay_frame in enumerate(overlay_frames):
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
 
-    return object_final_position_list, object_history_list
+    return expired_objects_dict, object_history_list
 
 
 def detect_objects(frame_data, frame_index, backSub, ui_app):
@@ -195,6 +200,7 @@ def detect_objects(frame_data, frame_index, backSub, ui_app):
         foreground_mask = backSub.apply(frame_copy)
     else:
         foreground_mask = frame_copy
+
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
     canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
     contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
@@ -212,17 +218,72 @@ def detect_objects(frame_data, frame_index, backSub, ui_app):
             cv.circle(mask, center, radius, 255, -1)
 
     # find the contours on the mask (with solid drawn shapes) and draw outline on input image
-    objects = []
     contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-
+    objects = []
     for cnt in contours:
         if ui_app.save_overlay.get():
             cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-
         x, y, w, h = cv.boundingRect(cnt)
         objects.append(
             DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
     return objects, frame_copy
+
+
+def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, image_h, ui_app):
+    for obj_id, tracked_obj in list(surviving_objects_dict.items()):
+        if (frame_number - tracked_obj.most_recent_frame) > ui_app.timeout.get():
+            # Removed expired objects that are not tracked
+            if tracked_obj.frames_tracked == 0:
+                del surviving_objects_dict[tracked_obj.object_id]
+            # Add expired objects that were being tracked
+            else:
+                tracked_obj.outlet_assignment(image_h)
+                expired_objects_dict[tracked_obj.object_id] = tracked_obj
+                del surviving_objects_dict[tracked_obj.object_id]
+
+    return surviving_objects_dict, expired_objects_dict
+
+
+def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app):
+    if not surviving_objects_dict:
+        no_match = True
+        return no_match, surviving_objects_dict
+
+    candidates = {}
+    # Go through each item in the tracking queue
+    for obj_id, previous_object_instance in list(surviving_objects_dict.items()):
+        distance = calculate_distance(object_in_frame, previous_object_instance)
+
+        if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
+                distance < ui_app.max_centroid_distance.get()):
+            candidates[previous_object_instance] = distance
+
+    if candidates:
+        # It might be that the old object persists and the new object only inherits
+        # the object id label... then, the old object will time out and be added to the
+        # tracked list of items. Instead.. try to keep old objects alive
+
+        matched_object = min(candidates, key=candidates.get)
+        object_in_frame.object_id = matched_object.object_id
+        object_in_frame.most_recent_frame = frame_number
+        object_in_frame.frames_tracked = matched_object.frames_tracked + 1
+        surviving_objects_dict[object_in_frame.object_id] = object_in_frame
+        no_match = False
+        return no_match, surviving_objects_dict
+        # matched_object.most_recent_frame = frame_number
+        # matched_object.update_frames_tracked()
+    else:
+        no_match = True
+
+    return no_match, surviving_objects_dict
+
+
+def add_new_objects(object_in_frame, objects_in_previous_frame_dict, next_new_id, frame_number):
+    object_in_frame.object_id = next_new_id
+    object_in_frame.most_recent_frame = frame_number
+    objects_in_previous_frame_dict[next_new_id] = object_in_frame
+    next_new_id += 1
+    return objects_in_previous_frame_dict, next_new_id
 
 
 def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> int:
@@ -243,48 +304,7 @@ def coord_in_roi(coord, ui_app):
         return False
 
 
-def expire_objects(objects_in_frame_dict, object_final_position, frame_number, image_h, ui_app):
-    for obj_id, tracked_obj in list(objects_in_frame_dict.items()):
-
-        # Check if the object has disappeared and timed out
-        if (frame_number - tracked_obj.most_recent_frame) > ui_app.timeout.get():
-            tracked_obj.outlet_assignment(image_h)
-            object_final_position.append(tracked_obj)
-            del objects_in_frame_dict[obj_id]
-
-    return objects_in_frame_dict, object_final_position
-
-
-def match_tracked_objects(objects_in_previous_frame_dict, object_in_frame, frame_number, ui_app):
-    no_match = False
-    candidates = {}
-    # Go through each item in the tracking queue
-    for obj_id, previous_object_instance in objects_in_previous_frame_dict.items():
-        distance = calculate_distance(object_in_frame, previous_object_instance)
-
-        if (object_in_frame.position[0] > previous_object_instance.position[0]) and (distance < ui_app.max_centroid_distance.get()):
-            candidates[previous_object_instance] = distance
-
-    if candidates:
-        matched_object = min(candidates, key=candidates.get)
-        object_in_frame.object_id = matched_object.object_id
-        object_in_frame.most_recent_frame = frame_number
-        object_in_frame.update_frames_tracked()
-    else:
-        no_match = True
-
-    return no_match
-
-
-def add_new_objects(object_in_frame, objects_in_previous_frame_dict, next_new_id, frame_number):
-    object_in_frame.object_id = next_new_id
-    object_in_frame.most_recent_frame = frame_number
-    objects_in_previous_frame_dict[next_new_id] = object_in_frame
-    next_new_id += 1
-    return objects_in_previous_frame_dict, next_new_id
-
-
-def export_to_csv(object_history, csv_filename: str) -> None:
+def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
                       'DEP_response']
@@ -293,7 +313,7 @@ def export_to_csv(object_history, csv_filename: str) -> None:
         DEP_true = 0
         DEP_false = 0
 
-        for obj in object_history:
+        for object_id, obj in expired_objects_dict.items():
             if obj.DEP_outlet is True:
                 DEP_true += 1
             else:
@@ -309,7 +329,7 @@ def export_to_csv(object_history, csv_filename: str) -> None:
                 'frames_tracked': obj.frames_tracked,
                 'DEP_response': obj.DEP_outlet
             })
-        print(f"\nCells counted: {len(object_history)}")
+        print(f"\nCells counted: {len(expired_objects_dict)}")
         print(f"DEP True: {DEP_true}")
         print(f"DEP False: {DEP_false}")
 
@@ -317,4 +337,3 @@ def export_to_csv(object_history, csv_filename: str) -> None:
 # def tracking_logic(previous_object, next_object):
 #     if next_object.position[0] > previous_object.position[0]:
 #         if
-
