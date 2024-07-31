@@ -4,6 +4,7 @@ import unittest
 from COUNT.tracking import *
 from COUNT.ui import ROISelectionApp
 
+
 # TODO: Expand upon test cases for each function
 
 
@@ -68,7 +69,7 @@ class TestTracking(unittest.TestCase):
     def test_detect_objects(self):
         # If this fails, it could be good...
         results = []
-        actuals = [1, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 4, 3, 3, 3, 3, 3, 3, 3, 3, 3, 1, 1, 1, 2, 2, 2, 3]
+        actuals = [1, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 1, 2, 2, 2, 3]
         for frame in range(30):
             result, _ = detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub=self.backSub,
                                        ui_app=self.my_ui)
@@ -78,13 +79,13 @@ class TestTracking(unittest.TestCase):
     def test_add_new_objects(self):
         # No previous objects
         test_dict = {}
-        next_id = 2
+        next_id = 1
         frame_number = 5  # arbitrary
-        result_dict, result_id, = add_new_objects(object_in_frame=self.obj1, objects_in_previous_frame_dict=test_dict,
+        result_dict, result_id, = add_new_objects(new_object=self.obj1, objects_in_previous_frame_dict=test_dict,
                                                   next_new_id=next_id, frame_number=frame_number)
 
-        intended_dict = {2: self.obj1}
-        intended_id = next_id + 1
+        intended_dict = {1: self.obj1}
+        intended_id = 2
         self.assertEqual(result_dict, intended_dict)
         self.assertEqual(result_id, intended_id)
 
@@ -92,11 +93,69 @@ class TestTracking(unittest.TestCase):
         test_dict = {1: self.obj1}
         next_id = 2
         frame_number = 5  # arbitrary
-        result_dict, result_id, = add_new_objects(object_in_frame=self.obj2, objects_in_previous_frame_dict=test_dict,
+        result_dict, result_id, = add_new_objects(new_object=self.obj2, objects_in_previous_frame_dict=test_dict,
                                                   next_new_id=next_id, frame_number=frame_number)
 
         intended_dict = {1: self.obj1, 2: self.obj2}
-        intended_id = next_id + 1
+        intended_id = 3
+        self.assertEqual(result_dict, intended_dict)
+        self.assertEqual(result_id, intended_id)
+
+    def test_add_new_objects_edge_case(self):
+        # Weird edge case?:
+        # FRAME 255
+        self.obj41a = DetectedObject(object_id=41, position=(451, 442), size=(9, 9), most_recent_frame=255)
+        self.obj42a = DetectedObject(object_id=42, position=(444, 240), size=(9, 9), most_recent_frame=255)
+        self.obj43a = DetectedObject(object_id=43, position=(266, 299), size=(9, 9), most_recent_frame=255)
+        self.obj44a = DetectedObject(object_id=44, position=(0, 130), size=(2, 3), most_recent_frame=255)
+
+        # FRAME 256
+        self.obj41 = DetectedObject(object_id=41, position=(484, 442), size=(9, 9), most_recent_frame=256)
+        self.obj42 = DetectedObject(object_id=42, position=(477, 240), size=(9, 9), most_recent_frame=256)
+        self.obj43 = DetectedObject(object_id=43, position=(300, 299), size=(9, 9), most_recent_frame=256)
+        self.obj44 = DetectedObject(object_id=44, position=(26, 127), size=(9, 9), most_recent_frame=256)
+
+        self.obj45 = DetectedObject(object_id=45, position=(0, 188), size=(2, 3), most_recent_frame=256)
+        self.objx = DetectedObject(object_id=None, position=(15, 149), size=(9, 9), most_recent_frame=256)
+
+        dict_255 = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}  # FRAME 255
+        dict_256 = {41: self.obj41, 42: self.obj42, 43: self.obj43, 44: self.obj44, 45: self.obj45,
+                    46: self.objx}  # FRAME 256
+        frame_number = 256
+
+        next_id = 45
+        frame_number = 256
+
+        # Attempt to add missing object alone
+        result_dict, result_id, = add_new_objects(new_object=self.objx, objects_in_previous_frame_dict=dict_255,
+                                                  next_new_id=next_id, frame_number=frame_number)
+
+        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.objx}
+        intended_id = 46
+        self.assertEqual(result_dict, intended_dict)
+        self.assertEqual(result_id, intended_id)
+
+        # Attempt to add obj45 alone
+        result_dict, result_id, = add_new_objects(new_object=self.obj45, objects_in_previous_frame_dict=dict_255,
+                                                  next_new_id=next_id, frame_number=frame_number)
+
+        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.obj45}
+        intended_id = 46
+        self.assertEqual(result_dict, intended_dict)
+        self.assertEqual(result_id, intended_id)
+
+        # Iterate on dict, adding 45 then objx
+        result_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}
+
+        result_dict, result_id, = add_new_objects(new_object=self.obj45, objects_in_previous_frame_dict=result_dict,
+                                                  next_new_id=next_id, frame_number=frame_number)
+
+        result_dict, result_id, = add_new_objects(new_object=self.objx, objects_in_previous_frame_dict=result_dict,
+                                                  next_new_id=result_id, frame_number=frame_number)
+
+        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.obj45,
+                         46: self.objx}
+        intended_id = 47
         self.assertEqual(result_dict, intended_dict)
         self.assertEqual(result_id, intended_id)
 
@@ -119,7 +178,7 @@ class TestTracking(unittest.TestCase):
         obj = self.obj2
         frame_number = 5
         result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                            frame_number=frame_number, ui_app=self.my_ui)
+                                                         frame_number=frame_number, ui_app=self.my_ui)
         self.assertFalse(result_bool)
 
         # No match, previous object is to the right
@@ -127,7 +186,7 @@ class TestTracking(unittest.TestCase):
         obj = self.obj1
         frame_number = 5
         result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                            frame_number=frame_number, ui_app=self.my_ui)
+                                                         frame_number=frame_number, ui_app=self.my_ui)
         self.assertTrue(result_bool)
 
         # Object is too far away
@@ -136,7 +195,7 @@ class TestTracking(unittest.TestCase):
         obj = self.obj2
         frame_number = 5
         result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                            frame_number=frame_number, ui_app=self.my_ui)
+                                                         frame_number=frame_number, ui_app=self.my_ui)
         self.assertTrue(result_bool)
 
         # Object is too far away, and to the left
@@ -145,8 +204,37 @@ class TestTracking(unittest.TestCase):
         obj = self.obj2
         frame_number = 5
         result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                            frame_number=frame_number, ui_app=self.my_ui)
+                                                         frame_number=frame_number, ui_app=self.my_ui)
         self.assertTrue(result_bool)
+
+    def test_match_tracked_objects_edge_case(self):
+        # Weird Edge Case (Literally)
+        # FRAME 255
+        self.obj41a = DetectedObject(object_id=41, position=(451, 442), size=(9, 9), most_recent_frame=255)
+        self.obj42a = DetectedObject(object_id=42, position=(444, 240), size=(9, 9), most_recent_frame=255)
+        self.obj43a = DetectedObject(object_id=43, position=(266, 299), size=(9, 9), most_recent_frame=255)
+        self.obj44a = DetectedObject(object_id=44, position=(0, 130), size=(2, 3), most_recent_frame=255)
+
+        # FRAME 256
+        self.obj41 = DetectedObject(object_id=41, position=(484, 442), size=(9, 9), most_recent_frame=256)
+        self.obj42 = DetectedObject(object_id=42, position=(477, 240), size=(9, 9), most_recent_frame=256)
+        self.obj43 = DetectedObject(object_id=43, position=(300, 299), size=(9, 9), most_recent_frame=256)
+        self.obj44 = DetectedObject(object_id=44, position=(26, 127), size=(9, 9), most_recent_frame=256)
+        self.obj45 = DetectedObject(object_id=45, position=(0, 188), size=(2, 3), most_recent_frame=256)
+        self.objx = DetectedObject(object_id=100, position=(15, 149), size=(9, 9), most_recent_frame=256)
+
+        dict_255 = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}  # FRAME 255
+        dict_256 = {41: self.obj41, 42: self.obj42, 43: self.obj43, 44: self.obj44, 45: self.obj45,
+                    100: self.objx}  # FRAME 256
+        frame_number = 256
+
+        for obj_id, obj in dict_256.items():
+            result_bool, result_dict = match_tracked_objects(surviving_objects_dict=dict_255, object_in_frame=obj,
+                                                             frame_number=frame_number, ui_app=self.my_ui)
+            if obj_id == 45 or obj_id == 100:
+                self.assertTrue(result_bool, (obj_id, result_bool))
+            else:
+                self.assertFalse(result_bool, (obj_id, result_bool))
 
     def test_expire_objects_logic(self):
         # Expired object
@@ -163,7 +251,8 @@ class TestTracking(unittest.TestCase):
         frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get() + 1
         test_dict = {self.obj1.object_id: self.obj1}
         test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict, expired_objects_dict=test_expire_dict,
+        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
+                                                  expired_objects_dict=test_expire_dict,
                                                   frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
 
         intended_dict = {}
@@ -176,7 +265,8 @@ class TestTracking(unittest.TestCase):
         frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get()
         test_dict = {1: self.obj1}
         test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict, expired_objects_dict=test_expire_dict,
+        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
+                                                  expired_objects_dict=test_expire_dict,
                                                   frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
 
         intended_dict = {1: self.obj1}
@@ -190,7 +280,8 @@ class TestTracking(unittest.TestCase):
         frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get() + 1
         test_dict = {1: self.obj1}
         test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict, expired_objects_dict=test_expire_dict,
+        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
+                                                  expired_objects_dict=test_expire_dict,
                                                   frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
 
         intended_dict = {}
@@ -198,8 +289,6 @@ class TestTracking(unittest.TestCase):
 
         self.assertEqual(result_dict, intended_dict)
         self.assertEqual(result_list, intended_expire_dict)
-
-        # TODO: There must be some kind of edge case here
 
     def test_nd2_mog_contours(self):
         self.mog_results_dict, results_history_list = nd2_mog_contours(self.my_ui.file_path, self.my_ui)
