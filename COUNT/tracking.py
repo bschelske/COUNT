@@ -134,54 +134,71 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     """
     surviving_objects_dict = {}  # {object_id: object}
     expired_objects_dict = {}  # {object_id: object}
-    object_final_position_list = []
-    object_history_list = []
-    roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
-    next_new_id = 1
-    overlay_frames = []
-
+    object_history_list = []  # Tracking data for every object identified
+    next_new_id = 1  # ID number for first object
+    overlay_frames = []  # List containing frames for save overlay feature
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        image_w = nd2_file.metadata['width']
+        # Get information about nd2 file
         image_h = nd2_file.metadata['height']
         total_frames = len(nd2_file)
 
+        # Perform tracking on each frame
         for frame_number, frame_data in enumerate(nd2_file):
-            # print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")  # Track progress
+            # Track progress with print statement
+            print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")
+
+            # Detect Objects
             objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
                                                                   backSub=backSub, ui_app=ui_app)
             object_history_list.extend(objects_in_frame_list)
 
-            # print(f"Frame: {frame_number} objects_in_frame_list: {len(objects_in_frame_list)} objects_in_frame_dict: {len(surviving_objects_dict)}")
+            # if 253 < frame_number < 259:
+            #     print(f"FRAME: {frame_number}")
+            #     for object in objects_in_frame_list:
+            #         print(object, object.position, object.size)
 
             # Expire outgoing objects
             if surviving_objects_dict:
                 surviving_objects_dict, expired_objects_dict = expire_objects(surviving_objects_dict,
-                                                                                expired_objects_dict,
-                                                                                frame_number, image_h, ui_app)
+                                                                              expired_objects_dict,
+                                                                              frame_number, image_h, ui_app)
 
             # Match current objects to object history
             for object_in_frame in objects_in_frame_list:
-                no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
-                                                 ui_app)
+                no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
+                                                                         frame_number,
+                                                                         ui_app)
                 # Add incoming objects
                 if no_match:
                     surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
                                                                           next_new_id,
                                                                           frame_number)
-
+            # Add text, object ids to each frame, if chosen
             if ui_app.save_overlay.get():
+                # Add text to top of frame
                 cv.putText(overlay_frame,
                            str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
                            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
                            (0, 0, 0), 2, cv.LINE_AA)
+
+                # Add IDs to each tracked object
+                for object_id, tracked_object in surviving_objects_dict.items():
+                    cv.putText(overlay_frame,
+                               str(object_id),
+                               tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
+                               (0, 0, 0), 1, cv.LINE_AA)
+
+                # Store resulting frames into a list
                 overlay_frames.append(overlay_frame)
 
+        # On the last frame, add all remaining tracked objects to expired list.
         expired_objects_dict.update(surviving_objects_dict)
 
+        # Save overlay frames to results/overlay folder (default)
         if ui_app.save_overlay.get():
-            print(f"overlay saving in {ui_app.overlay_path}")
+            print(f"\noverlay saving in {ui_app.overlay_path}")
             for idx, overlay_frame in enumerate(overlay_frames):
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
@@ -191,41 +208,35 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
 def detect_objects(frame_data, frame_index, backSub, ui_app):
     frame_copy = frame_data.copy()
-    if ui_app.save_overlay.get():
-        frame_copy = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        frame_copy = cv.cvtColor(frame_copy, cv.COLOR_GRAY2BGR)
 
-    # Do background subtraction, and normalize for canny
+    # If saving overlay frames, a copy of the original frame must be converted from gray to color
+    if ui_app.save_overlay.get():
+        overlay_frame = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+        overlay_frame = cv.cvtColor(overlay_frame, cv.COLOR_GRAY2BGR)
+    backSub = False
+
     if backSub:
         foreground_mask = backSub.apply(frame_copy)
     else:
         foreground_mask = frame_copy
 
+    # Process the grayscale copy of the frame for canny edge detection
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
     canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
     contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
 
-    # Handle overlapping objects:
-    # create an empty mask
-    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
-
-    # Draw filled contours on a mask using bounding circles
-    for cnt in contours:
-        (x, y), radius = cv.minEnclosingCircle(cnt)
-        if coord_in_roi((x, y), ui_app) and radius > ui_app.cell_radius.get():
-            center = (int(x), int(y))
-            radius = int(radius + ui_app.cell_radius.get() // 2)
-            cv.circle(mask, center, radius, 255, -1)
-
-    # find the contours on the mask (with solid drawn shapes) and draw outline on input image
-    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     objects = []
+    # Create a DetectedObject instance for each contour
     for cnt in contours:
-        if ui_app.save_overlay.get():
-            cv.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
         x, y, w, h = cv.boundingRect(cnt)
         objects.append(
             DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+
+        # Draw the contour in red onto the color frame
+        if ui_app.save_overlay.get():
+            cv.drawContours(overlay_frame, [cnt], 0, (0, 0, 255), 2)
+            frame_copy = overlay_frame
+
     return objects, frame_copy
 
 
@@ -253,16 +264,10 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
     # Go through each item in the tracking queue
     for obj_id, previous_object_instance in list(surviving_objects_dict.items()):
         distance = calculate_distance(object_in_frame, previous_object_instance)
-
         if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
                 distance < ui_app.max_centroid_distance.get()):
             candidates[previous_object_instance] = distance
-
     if candidates:
-        # It might be that the old object persists and the new object only inherits
-        # the object id label... then, the old object will time out and be added to the
-        # tracked list of items. Instead.. try to keep old objects alive
-
         matched_object = min(candidates, key=candidates.get)
         object_in_frame.object_id = matched_object.object_id
         object_in_frame.most_recent_frame = frame_number
@@ -270,18 +275,15 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
         surviving_objects_dict[object_in_frame.object_id] = object_in_frame
         no_match = False
         return no_match, surviving_objects_dict
-        # matched_object.most_recent_frame = frame_number
-        # matched_object.update_frames_tracked()
     else:
         no_match = True
+        return no_match, surviving_objects_dict
 
-    return no_match, surviving_objects_dict
 
-
-def add_new_objects(object_in_frame, objects_in_previous_frame_dict, next_new_id, frame_number):
-    object_in_frame.object_id = next_new_id
-    object_in_frame.most_recent_frame = frame_number
-    objects_in_previous_frame_dict[next_new_id] = object_in_frame
+def add_new_objects(new_object, objects_in_previous_frame_dict, next_new_id, frame_number):
+    new_object.object_id = next_new_id
+    new_object.most_recent_frame = frame_number
+    objects_in_previous_frame_dict[next_new_id] = new_object
     next_new_id += 1
     return objects_in_previous_frame_dict, next_new_id
 
