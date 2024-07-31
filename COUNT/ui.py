@@ -121,9 +121,12 @@ class ROISelectionApp:
         self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
         self.quit_button.grid(row=8, column=3, padx=1, pady=10)
 
-    # Some functions of the UI require functions (haha)
+    # Some functions of the UI require functions
     def choose_file(self):
         self.file_path = filedialog.askopenfilename()
+        with ND2Reader_SDK(self.file_path) as nd2_file:
+            self.roi_width.set(nd2_file.metadata['width'])
+            self.roi_height.set(nd2_file.metadata['height'])
         print("Selection:", self.file_path)
 
     def choose_folder(self):
