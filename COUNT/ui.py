@@ -212,10 +212,14 @@ class ROISelectionApp:
         cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])
 
         while True:
+            # Check if the window is still open
+            if cv2.getWindowProperty('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WND_PROP_VISIBLE) < 1:
+                break  # Exit loop if the window is closed
+
             k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
-            if k == 52:  # Key code 4
+            if k == 53:  # Key code 5
                 cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
-            elif k == 53:  # Key code 5
+            elif k == 52:  # Key code 4
                 cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
             elif k == 27:  # ESC key
                 break
