@@ -207,7 +207,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
 
 def detect_objects(frame_data, frame_index, backSub, ui_app):
-    frame_copy = frame_data.copy()
+    frame_copy = frame_data.view()
 
     # If saving overlay frames, a copy of the original frame must be converted from gray to color
     if ui_app.save_overlay.get():
@@ -262,7 +262,7 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
 
     candidates = {}
     # Go through each item in the tracking queue
-    for obj_id, previous_object_instance in list(surviving_objects_dict.items()):
+    for obj_id, previous_object_instance in surviving_objects_dict.items():
         distance = calculate_distance(object_in_frame, previous_object_instance)
         if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
                 distance < ui_app.max_centroid_distance.get()):
