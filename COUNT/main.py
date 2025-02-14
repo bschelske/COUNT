@@ -10,6 +10,7 @@ Check the readme on gitHub for more information. https://github.com/bschelske/CO
 This is the file that is meant to be run.
 """
 import os
+import time
 
 from COUNT import ui, tracking
 
@@ -43,4 +44,7 @@ def main():
 
 
 if __name__ == '__main__':
+    start_time = time.time()
     main()
+    duration = time.time() - start_time
+    print(f"Time elapsed: {duration}")
