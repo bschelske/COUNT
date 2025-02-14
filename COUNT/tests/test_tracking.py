@@ -1,5 +1,6 @@
 import tkinter as tk
 import unittest
+import time
 
 from COUNT.tracking import *
 from COUNT.ui import ROISelectionApp
@@ -22,10 +23,33 @@ class TestTracking(unittest.TestCase):
         # self.my_ui.save_overlay = tk.BooleanVar(value=True)
 
         self.image_h = 512
-
         self.nd2_file = ND2Reader_SDK(self.my_ui.file_path)
         # self.backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
         self.backSub = False
+
+
+    def test_detect_objects_performance(self):
+        """Measure the time taken to process 100 frames."""
+        start_time = time.time()
+        for frame in range(600):
+            detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub=self.backSub, ui_app=self.my_ui)
+        duration = time.time() - start_time
+        print(f"detect_objects processed 600 frames in {duration:.2f} seconds")
+        self.assertLess(duration, 1, "Detection took too long!")  # Adjust the threshold as needed
+
+    def test_match_tracked_objects_performance(self):
+        """Ensure matching objects remains efficient."""
+        test_dict = {i: DetectedObject(object_id=i, position=(i * 5, 100), size=(5, 5), most_recent_frame=1) for i in
+                     range(100)}
+        obj = DetectedObject(object_id=None, position=(500, 100), size=(5, 5), most_recent_frame=2)
+        frame_number = 2
+
+        start_time = time.time()
+        match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj, frame_number=frame_number,
+                              ui_app=self.my_ui)
+        duration = time.time() - start_time
+        print(f"match_tracked_objects executed in {duration:.5f} seconds")
+        self.assertLess(duration, 0.1, "Object matching took too long!")  # Adjust as needed
 
     def test_DetectedObject_update(self):
         pass
