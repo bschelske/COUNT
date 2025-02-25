@@ -1,0 +1,9 @@
+{
+    "canny_upper": 255,
+    "canny_lower": 85,
+    "max_centroid_distance": 70,
+    "timeout": 5,
+    "cell_radius": 6,
+    "save_overlay": false,
+    "csv_save_path": "results/"
+}
