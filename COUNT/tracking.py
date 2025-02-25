@@ -147,18 +147,10 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
         # Perform tracking on each frame
         for frame_number, frame_data in tqdm(enumerate(nd2_file)):
-            # Track progress with print statement
-            # print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")
-
             # Detect Objects
             objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
                                                                   backSub=backSub, ui_app=ui_app)
             object_history_list.extend(objects_in_frame_list)
-
-            # if 253 < frame_number < 259:
-            #     print(f"FRAME: {frame_number}")
-            #     for object in objects_in_frame_list:
-            #         print(object, object.position, object.size)
 
             # Expire outgoing objects
             if surviving_objects_dict:
@@ -297,16 +289,6 @@ def calculate_distance(detected_object1: DetectedObject, detected_object2: Detec
         (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
 
-
-def coord_in_roi(coord, ui_app):
-    roi_x, roi_y, roi_h, roi_w = ui_app.get_roi()
-    x, y = coord
-    if (roi_x <= x <= (roi_x + roi_w)) and (roi_y <= y <= (roi_y + roi_h)):
-        return True
-    else:
-        return False
-
-
 def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
@@ -335,8 +317,3 @@ def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
         print(f"\nCells counted: {len(expired_objects_dict)}")
         print(f"DEP True: {DEP_true}")
         print(f"DEP False: {DEP_false}")
-
-#
-# def tracking_logic(previous_object, next_object):
-#     if next_object.position[0] > previous_object.position[0]:
-#         if
