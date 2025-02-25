@@ -29,6 +29,7 @@ import typing
 
 import cv2 as cv
 import numpy as np
+from tqdm import tqdm
 from pims import ND2Reader_SDK
 
 
@@ -145,9 +146,9 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         total_frames = len(nd2_file)
 
         # Perform tracking on each frame
-        for frame_number, frame_data in enumerate(nd2_file):
+        for frame_number, frame_data in tqdm(enumerate(nd2_file)):
             # Track progress with print statement
-            print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")
+            # print(f"\rFrame: {frame_number}/{total_frames - 1}", end="")
 
             # Detect Objects
             objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
