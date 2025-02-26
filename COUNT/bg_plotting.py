@@ -112,12 +112,19 @@ class DataSelectionApp:
                 'frequency': get_frequency(file),
                 'DEP_True': count_DEP_True,
                 'DEP_False': count_DEP_False,
+                'number of objects': count_DEP_True+count_DEP_False,
                 'Percent True': (count_DEP_True / (count_DEP_True + count_DEP_False)),
             }
             results.append(result)
         results_df = pd.DataFrame(results)
+        upper_threshold = results_df['number of objects'].mean() + 3 * results_df['number of objects'].std()
+        lower_threshold = results_df['number of objects'].mean() - 3 * results_df['number of objects'].std()
 
+        results_df['possibly_miscounted'] = ((results_df['number of objects'] > upper_threshold) |
+                                             (results_df['number of objects'] < lower_threshold))
         results_df.to_csv(f"results/final_results/final_results.csv")
+        if results_df['possibly_miscounted'].any():
+            tk.messagebox.showinfo("Whoops", "There was a miscount somewhere. Check the possibly_miscounted column.")
         print("final_results.csv saved in COUNT/results folder. rename your file, so it isn't overwritten :)")
 
     def make_plot(self):
