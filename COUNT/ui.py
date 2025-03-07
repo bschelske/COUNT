@@ -39,6 +39,7 @@ class ROISelectionApp:
             value=self.settings.get("timeout"))  # How long before an object is considered lost (frames)
         self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
+        self.flow_direction = tk.StringVar(value="Towards Right (--->)")
         self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_toolbar()
         self.create_widgets()  # This is the part of the UI you can see
@@ -59,63 +60,81 @@ class ROISelectionApp:
 
     def create_widgets(self):
         """Makes the visual parts of the UI. Ignore unless changing position of UI elements"""
+        justification = "w"
         # File selection button
-        tk.Label(self.master, text="For individual .nd2 file").grid(row=0, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For individual .nd2 file", anchor=justification).grid(sticky="w", row=0, column=0,
+                                                                                          padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
         self.file_button.grid(row=0, column=1, padx=5, pady=5)
 
         # Folder selection button
-        tk.Label(self.master, text="For .nd2 files in a folder").grid(row=1, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For .nd2 files in a folder", anchor=justification).grid(sticky="w", row=1, column=0,
+                                                                                            padx=5, pady=5)
         self.folder_button = tk.Button(self.master, text="Choose Folder", command=self.choose_folder)
         self.folder_button.grid(row=1, column=1, padx=5, pady=5)
 
         # csv output folder selection button
-        tk.Label(self.master, text="Choose .csv save path").grid(row=0, column=2, padx=5, pady=5)
+        tk.Label(self.master, text="Choose .csv save path", anchor=justification).grid(sticky="w", row=0, column=2,
+                                                                                       padx=5, pady=5)
         self.csv_button = tk.Button(self.master, text="Choose Folder", command=self.choose_csv_output)
         self.csv_button.grid(row=0, column=3, padx=5, pady=5)
 
         # Preview Edge Dectection button
-        tk.Label(self.master, text="Visualize Edge Detection").grid(row=7, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Visualize Edge Detection", anchor=justification).grid(sticky="w", row=8, column=0,
+                                                                                          padx=5, pady=5)
         self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
+        self.edge_preview_button.grid(row=8, column=1, padx=5, pady=5)
+
+        # Flow direction
+        tk.Label(self.master, text="Flow direction", anchor=justification).grid(sticky="w", row=7, column=0, padx=5,
+                                                                                pady=5)
+        self.edge_preview_button = tk.OptionMenu(self.master, self.flow_direction,
+                                                 *["Towards Right (--->)", "Towards left (<---)"],
+                                                 command=self.preview_edge_detection)
         self.edge_preview_button.grid(row=7, column=1, padx=5, pady=5)
 
         # Canny Upper input field
-        tk.Label(self.master, text="Canny Upper:").grid(row=2, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Canny Upper:", anchor=justification).grid(sticky="w", row=2, column=0, padx=5,
+                                                                              pady=5)
         self.canny_upper_entry = tk.Entry(self.master, textvariable=self.canny_upper)
         self.canny_upper_entry.grid(row=2, column=1, padx=5, pady=5)
 
         # Canny Lower input field
-        tk.Label(self.master, text="Canny Lower:").grid(row=3, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Canny Lower:", anchor=justification).grid(sticky="w", row=3, column=0, padx=5,
+                                                                              pady=5)
         self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
         self.canny_lower_entry.grid(row=3, column=1, padx=5, pady=5)
 
         # Max Centroid Distance input field
-        tk.Label(self.master, text="Max Centroid Distance (px):").grid(row=4, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Max Centroid Distance (px):", anchor=justification).grid(sticky="w", row=4,
+                                                                                             column=0, padx=5, pady=5)
         self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
         self.max_centroid_distance_entry.grid(row=4, column=1, padx=5, pady=5)
 
         # Timeout threshold input field
-        tk.Label(self.master, text="Timeout Threshold (frames):").grid(row=5, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Timeout Threshold (frames):", anchor=justification).grid(sticky="w", row=5,
+                                                                                             column=0, padx=5, pady=5)
         self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
         self.timeout_entry.grid(row=5, column=1, padx=5, pady=5)
 
         # Expected Cell Radius input field
-        tk.Label(self.master, text="Expected Cell Radius (px):").grid(row=6, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Expected Cell Radius (px):", anchor=justification).grid(sticky="w", row=6, column=0,
+                                                                                            padx=5, pady=5)
         self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
         self.cell_radius_entry.grid(row=6, column=1, padx=5, pady=5)
 
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
                                                     onvalue=True, offvalue=False, command=self.on_checkbox_click)
-        self.save_overlay_checkbox.grid(row=8, column=0, columnspan=1, padx=5, pady=5)
+        self.save_overlay_checkbox.grid(row=9, column=0, columnspan=1, padx=5, pady=5)
 
         # Button to confirm selections
         self.confirm_button = tk.Button(self.master, text="      Confirm     ", command=self.confirm_selections)
-        self.confirm_button.grid(row=8, column=2, padx=1, pady=10)
+        self.confirm_button.grid(sticky="w", row=9, column=2, padx=1, pady=10)
 
         # Quit button
         self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
-        self.quit_button.grid(row=8, column=3, padx=1, pady=10)
+        self.quit_button.grid(sticky="w", row=9, column=3, padx=1, pady=10)
 
     def choose_settings_file(self):
         self.SETTINGS_PATH = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
@@ -138,13 +157,13 @@ class ROISelectionApp:
 
     def save_settings(self):
         settings = {"canny_upper": self.canny_upper.get(),
-                             "canny_lower": self.canny_lower.get(),
-                             "max_centroid_distance": self.max_centroid_distance.get(),
-                             "timeout": self.timeout.get(),
-                             "cell_radius": self.cell_radius.get(),
-                             "save_overlay": self.save_overlay.get(),
-                            "csv_save_path": self.csv_folder_path.get()
-        }
+                    "canny_lower": self.canny_lower.get(),
+                    "max_centroid_distance": self.max_centroid_distance.get(),
+                    "timeout": self.timeout.get(),
+                    "cell_radius": self.cell_radius.get(),
+                    "save_overlay": self.save_overlay.get(),
+                    "csv_save_path": self.csv_folder_path.get()
+                    }
         with open(self.SETTINGS_PATH, "w") as file:
             json.dump(settings, file, indent=4)
         tk.messagebox.showinfo("Settings", f"Settings saved to\n{self.SETTINGS_PATH}")
