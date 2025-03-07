@@ -95,7 +95,7 @@ class TestTracking(unittest.TestCase):
         results = []
         actuals = [1, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 1, 2, 2, 2, 3]
         for frame in range(30):
-            result, _ = detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub=self.backSub,
+            result, _ = detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub_mask=self.backSub,
                                        ui_app=self.my_ui)
             results.append(len(result))
         self.assertEqual(results, actuals)

@@ -143,13 +143,23 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
         # Get information about nd2 file
         image_h = nd2_file.metadata['height']
-        total_frames = len(nd2_file)
+
+        if 'm' in nd2_file.sizes.keys(): # new nikon weirdness
+            nd2_file.iter_axes = 'm'
+
+        # #MOG2 Background subtraction:
+        # for frame in nd2_file[0:4]:  # First five frames to calculate background
+        #     frame = cv.normalize(frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+        #     backSub_mask = backSub.apply(frame)
 
         # Perform tracking on each frame
         for frame_number, frame_data in tqdm(enumerate(nd2_file)):
+
+            frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+            backSub_mask = backSub.apply(frame_data)
             # Detect Objects
             objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
-                                                                  backSub=backSub, ui_app=ui_app)
+                                                                  backSub_mask=backSub_mask, ui_app=ui_app)
             object_history_list.extend(objects_in_frame_list)
 
             # Expire outgoing objects
@@ -170,21 +180,22 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                                                                           frame_number)
             # Add text, object ids to each frame, if chosen
             if ui_app.save_overlay.get():
+                save_overlay_frame = overlay_frame.copy()
                 # Add text to top of frame
-                cv.putText(overlay_frame,
+                cv.putText(save_overlay_frame,
                            str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
                            (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
                            (0, 0, 0), 2, cv.LINE_AA)
 
                 # Add IDs to each tracked object
                 for object_id, tracked_object in surviving_objects_dict.items():
-                    cv.putText(overlay_frame,
+                    cv.putText(save_overlay_frame,
                                str(object_id),
                                tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
                                (0, 0, 0), 1, cv.LINE_AA)
 
                 # Store resulting frames into a list
-                overlay_frames.append(overlay_frame)
+                overlay_frames.append(save_overlay_frame)
 
         # On the last frame, add all remaining tracked objects to expired list.
         expired_objects_dict.update(surviving_objects_dict)
@@ -192,24 +203,23 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         # Save overlay frames to results/overlay folder (default)
         if ui_app.save_overlay.get():
             print(f"\noverlay saving in {ui_app.overlay_path}")
-            for idx, overlay_frame in enumerate(overlay_frames):
+            for idx, overlay_frame in tqdm(enumerate(overlay_frames)):
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
 
     return expired_objects_dict, object_history_list
 
 
-def detect_objects(frame_data, frame_index, backSub, ui_app):
+def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
     frame_copy = frame_data.view()
 
     # If saving overlay frames, a copy of the original frame must be converted from gray to color
     if ui_app.save_overlay.get():
         overlay_frame = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
         overlay_frame = cv.cvtColor(overlay_frame, cv.COLOR_GRAY2BGR)
-    backSub = False
 
-    if backSub:
-        foreground_mask = backSub.apply(frame_copy)
+    if backSub_mask.any():
+        foreground_mask = backSub_mask
     else:
         foreground_mask = frame_copy
 
@@ -218,20 +228,36 @@ def detect_objects(frame_data, frame_index, backSub, ui_app):
     canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
     contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
 
+    frame_copy, contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
+
     objects = []
     # Create a DetectedObject instance for each contour
     for cnt in contours:
         x, y, w, h = cv.boundingRect(cnt)
-        objects.append(
-            DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+        if (w > ui_app.cell_radius.get() * 10) or (h > ui_app.cell_radius.get() * 10):
+            pass
+        else:
+            objects.append(
+                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
 
-        # Draw the contour in red onto the color frame
-        if ui_app.save_overlay.get():
-            cv.drawContours(overlay_frame, [cnt], 0, (0, 0, 255), 2)
-            frame_copy = overlay_frame
-
+            # Draw the contour in red onto the color frame
+            if ui_app.save_overlay.get():
+                cv.drawContours(overlay_frame, [cnt], 0, (0, 0, 255), 2)
+                frame_copy = overlay_frame
     return objects, frame_copy
 
+def remove_overlapped_objects(frame_copy, contours, cell_radius):
+    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
+
+    # Draw filled contours on a mask using bounding circles
+    for cnt in contours:
+        (x, y), radius = cv.minEnclosingCircle(cnt)
+        center = (int(x), int(y))
+        radius = int(radius + cell_radius)
+        cv.circle(mask, center, radius, (255), -1)
+    # return contours detected on overlapped objects
+    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    return frame_copy, contours
 
 def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, image_h, ui_app):
     for obj_id, tracked_obj in list(surviving_objects_dict.items()):
