@@ -147,13 +147,8 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         if 'm' in nd2_file.sizes.keys(): # new nikon weirdness
             nd2_file.iter_axes = 'm'
 
-        # #MOG2 Background subtraction:
-        # for frame in nd2_file[0:4]:  # First five frames to calculate background
-        #     frame = cv.normalize(frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        #     backSub_mask = backSub.apply(frame)
-
         # Perform tracking on each frame
-        for frame_number, frame_data in tqdm(enumerate(nd2_file)):
+        for frame_number, frame_data in tqdm(enumerate(nd2_file), "Tracking on frames"):
 
             frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
             backSub_mask = backSub.apply(frame_data)
@@ -189,10 +184,13 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
                 # Add IDs to each tracked object
                 for object_id, tracked_object in surviving_objects_dict.items():
-                    cv.putText(save_overlay_frame,
-                               str(object_id),
-                               tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
-                               (0, 0, 0), 1, cv.LINE_AA)
+                    if tracked_object.frames_tracked > ui_app.timeout.get()//2:
+                        cv.putText(save_overlay_frame,
+                                   str(object_id),
+                                   tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
+                                   (0, 0, 0), 1, cv.LINE_AA)
+                    else:
+                        pass
 
                 # Store resulting frames into a list
                 overlay_frames.append(save_overlay_frame)
@@ -203,7 +201,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         # Save overlay frames to results/overlay folder (default)
         if ui_app.save_overlay.get():
             print(f"\noverlay saving in {ui_app.overlay_path}")
-            for idx, overlay_frame in tqdm(enumerate(overlay_frames)):
+            for idx, overlay_frame in tqdm(enumerate(overlay_frames), "Saving overlay"):
                 save_path = ui_app.overlay_path + f"{idx:03d}.png"
                 cv.imwrite(save_path, overlay_frame)
 
@@ -225,7 +223,11 @@ def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
 
     # Process the grayscale copy of the frame for canny edge detection
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-    canny_img = cv.Canny(normalized_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
+    # Morphological operation to reduce noise
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
+    # Canny edge detection
+    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
     contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
 
     frame_copy, contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
@@ -263,7 +265,7 @@ def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, i
     for obj_id, tracked_obj in list(surviving_objects_dict.items()):
         if (frame_number - tracked_obj.most_recent_frame) > ui_app.timeout.get():
             # Removed expired objects that are not tracked
-            if tracked_obj.frames_tracked == 0:
+            if tracked_obj.frames_tracked < ui_app.timeout.get():
                 del surviving_objects_dict[tracked_obj.object_id]
             # Add expired objects that were being tracked
             else:

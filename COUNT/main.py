@@ -11,6 +11,7 @@ This is the file that is meant to be run.
 """
 import os
 import time
+import traceback
 
 from COUNT import ui, tracking
 
@@ -41,6 +42,7 @@ def main():
 
         except Exception as e:
             print(f"Error processing file {nd2_file}: {e}")
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
