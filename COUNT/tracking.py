@@ -57,12 +57,6 @@ class DetectedObject:
     update_frames_tracked() -> None
         Increments the frame tracking counter.
 
-    enters_from_left(roi_x: float, roi_w: float) -> bool
-        Checks if the object enters the region of interest (ROI) from the left.
-
-    exits_right(roi_x: float, roi_w: float) -> bool
-        Checks if the object exits the ROI from the right.
-
     center() -> Tuple[float, float]
         Calculates and returns the center position of the object.
 
@@ -79,35 +73,19 @@ class DetectedObject:
         self.frames_tracked = 0
         self.position_history = {self.most_recent_frame: self.position}
         self.displacement_history = []
-        self.avg_displacement = None
 
-    def update(self, most_recent_frame, new_position):
-        self.frames_tracked += 1
-        self.most_recent_frame = most_recent_frame
-
-        self.displacement_history.append(new_position[0] - self.position[0])
-        self.calculate_avg_displacement()
-
-        self.position = new_position
-        self.position_history[self.most_recent_frame] = self.position
-
-    def calculate_avg_displacement(self):
-        self.avg_displacement = sum(self.displacement_history) / len(self.displacement_history)
-
-    def update_frames_tracked(self):
-        self.frames_tracked += 1
-
-    def enters_from_left(self, roi_x, roi_w):
-        if roi_x < self.position[0] < roi_x + int(roi_w * .2):
-            return True
-        else:
-            return False
-
-    def exits_right(self, roi_x, roi_w):
-        if roi_x + roi_w <= self.position[0]:
-            return True
-        else:
-            return False
+    # Deprecated?
+    # def update(self, most_recent_frame, new_position):
+    #     self.frames_tracked += 1
+    #     self.most_recent_frame = most_recent_frame
+    #
+    #     self.displacement_history.append(new_position[0] - self.position[0])
+    #
+    #     self.position = new_position
+    #     self.position_history[self.most_recent_frame] = self.position
+    #
+    # def update_frames_tracked(self):
+    #     self.frames_tracked += 1
 
     def center(self):
         return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
@@ -137,7 +115,6 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     expired_objects_dict = {}  # {object_id: object}
     object_history_list = []  # Tracking data for every object identified
     next_new_id = 1  # ID number for first object
-    overlay_frames = []  # List containing frames for save overlay feature
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
@@ -147,64 +124,77 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         if 'm' in nd2_file.sizes.keys(): # new nikon weirdness
             nd2_file.iter_axes = 'm'
 
-        # Perform tracking on each frame
-        for frame_number, frame_data in tqdm(enumerate(nd2_file), "Tracking on frames"):
+        # Get total frame count for batching
+        total_frames = len(nd2_file)
+        batch_size = 100  # Process 100 frames at a time
 
-            frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-            backSub_mask = backSub.apply(frame_data)
-            # Detect Objects
-            objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
-                                                                  backSub_mask=backSub_mask, ui_app=ui_app)
-            object_history_list.extend(objects_in_frame_list)
-
-            # Expire outgoing objects
-            if surviving_objects_dict:
-                surviving_objects_dict, expired_objects_dict = expire_objects(surviving_objects_dict,
-                                                                              expired_objects_dict,
-                                                                              frame_number, image_h, ui_app)
-
-            # Match current objects to object history
-            for object_in_frame in objects_in_frame_list:
-                no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
-                                                                         frame_number,
-                                                                         ui_app)
-                # Add incoming objects
-                if no_match:
-                    surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
-                                                                          next_new_id,
-                                                                          frame_number)
-            # Add text, object ids to each frame, if chosen
-            if ui_app.save_overlay.get():
-                save_overlay_frame = overlay_frame.copy()
-                # Add text to top of frame
-                cv.putText(save_overlay_frame,
-                           str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
-                           (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                           (0, 0, 0), 2, cv.LINE_AA)
-
-                # Add IDs to each tracked object
-                for object_id, tracked_object in surviving_objects_dict.items():
-                    if tracked_object.frames_tracked > ui_app.timeout.get()//2:
-                        cv.putText(save_overlay_frame,
-                                   str(object_id),
-                                   tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
-                                   (0, 0, 0), 1, cv.LINE_AA)
-                    else:
-                        pass
-
-                # Store resulting frames into a list
-                overlay_frames.append(save_overlay_frame)
-
-        # On the last frame, add all remaining tracked objects to expired list.
-        expired_objects_dict.update(surviving_objects_dict)
-
-        # Save overlay frames to results/overlay folder (default)
         if ui_app.save_overlay.get():
             print(f"\noverlay saving in {ui_app.overlay_path}")
-            for idx, overlay_frame in tqdm(enumerate(overlay_frames), "Saving overlay"):
-                save_path = ui_app.overlay_path + f"{idx:03d}.png"
-                cv.imwrite(save_path, overlay_frame)
 
+        for batch_start in range(0, total_frames, batch_size):
+            batch_end = min(batch_start + batch_size, total_frames)
+
+            # Perform tracking on each frame
+            for frame_number in tqdm(range(batch_start, batch_end), f"Batch {batch_start//batch_size+1}"):
+                frame_data = nd2_file[frame_number]
+                frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+                backSub_mask = backSub.apply(frame_data)
+                # Detect Objects
+                objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
+                                                                      backSub_mask=backSub_mask, ui_app=ui_app)
+                object_history_list.extend(objects_in_frame_list)
+
+                # Expire outgoing objects
+                if surviving_objects_dict:
+                    surviving_objects_dict, expired_objects_dict = expire_objects(surviving_objects_dict,
+                                                                                  expired_objects_dict,
+                                                                                  frame_number, image_h, ui_app)
+
+                # Match current objects to object history
+                for object_in_frame in objects_in_frame_list:
+                    no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
+                                                                             frame_number,
+                                                                             ui_app)
+                    # Add incoming objects
+                    if no_match:
+                        surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
+                                                                              next_new_id,
+                                                                              frame_number)
+                # Add text, object ids to each frame, if chosen
+                if ui_app.save_overlay.get():
+                    save_overlay_frame = overlay_frame.copy()
+                    # Add text to top of frame
+                    cv.putText(save_overlay_frame,
+                               str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
+                               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+                               (0, 0, 255), 2, cv.LINE_AA)
+
+                    # Add IDs to each tracked object
+                    for object_id, tracked_object in surviving_objects_dict.items():
+                        if tracked_object.frames_tracked > ui_app.timeout.get()//2:
+                            cv.putText(save_overlay_frame,
+                                       str(object_id),
+                                       tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
+                                       (0, 0, 0), 1, cv.LINE_AA)
+                        else:
+                            pass
+
+                # Save overlay frames to results/overlay folder (default)
+                if ui_app.save_overlay.get():
+                    save_path = ui_app.overlay_path + f"{frame_number:03d}.png"
+                    cv.imwrite(save_path, overlay_frame)
+                    del save_overlay_frame
+
+            import gc
+            gc.collect()
+
+    # After processing all batches, properly handle the remaining objects
+    # Ensure all surviving objects have their DEP_outlet assigned
+    for obj_id, tracked_obj in surviving_objects_dict.items():
+        tracked_obj.outlet_assignment(image_h)
+
+    # Now add all remaining tracked objects to expired list
+    expired_objects_dict.update(surviving_objects_dict)
     return expired_objects_dict, object_history_list
 
 
@@ -342,6 +332,27 @@ def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
                 'frames_tracked': obj.frames_tracked,
                 'DEP_response': obj.DEP_outlet
             })
-        print(f"\nCells counted: {len(expired_objects_dict)}")
-        print(f"DEP True: {DEP_true}")
-        print(f"DEP False: {DEP_false}")
+        print("\nObject Detection Results:")
+        print(f"\tCells counted: {len(expired_objects_dict)}")
+        print(f"\tDEP True: {DEP_true}")
+        print(f"\tDEP False: {DEP_false}")
+        print(f"{csv_filename} saved")
+
+
+def export_trajectories_to_csv(objects_list, csv_filename: str) -> None:
+    with open(csv_filename, 'w', newline='') as csvfile:
+        fieldnames = ['frame', 'object_id', 'x_pos', 'y_pos', 'x_size', 'y_size']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for obj in objects_list:
+            for frame, position in obj.position_history.items():
+                writer.writerow({
+                    'frame': frame,
+                    'object_id': obj.object_id,
+                    'x_pos': position[0],
+                    'y_pos': position[1],
+                    'x_size': obj.size[0],
+                    'y_size': obj.size[1]
+                })
+    print(f"\n{csv_filename} saved")
+
