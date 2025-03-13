@@ -37,8 +37,9 @@ def main():
             object_final_position, active_id_trajectory = tracking.nd2_mog_contours(nd2_file, app)
 
             csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
+            trajectory_csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_trajectory_results.csv")
             tracking.export_to_csv(object_final_position, csv_filename)
-            print(f"{csv_filename} saved")
+            tracking.export_trajectories_to_csv(active_id_trajectory, trajectory_csv_filename)
 
         except Exception as e:
             print(f"Error processing file {nd2_file}: {e}")
@@ -49,4 +50,4 @@ if __name__ == '__main__':
     start_time = time.time()
     main()
     duration = time.time() - start_time
-    print(f"Time elapsed: {duration}")
+    print(f"Time elapsed: {duration:.2f} s")
