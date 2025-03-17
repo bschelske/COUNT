@@ -212,8 +212,8 @@ class ROISelectionApp:
         self.master.destroy()
 
     def error_handling(self):
-        if self.file_path == '' and self.folder_path.get() == '':
-            raise ValueError("No file selected!")
+        # if self.file_path == '' and self.folder_path.get() == '':
+        #     raise ValueError("No file selected!")
         if self.file_path and self.folder_path.get():
             raise ValueError(
                 "...Why did you pick a file AND a folder? Choose ONE or the OTHER. What did you expect to happen? :)")
