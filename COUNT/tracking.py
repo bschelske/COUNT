@@ -10,10 +10,6 @@ General tracking strategy:
     Track contours through time using minimum distance traveled between frames
 
 Specific tracking nuance:
-    Objects are tracked assuming they enter from the left of the image
-    There needs to be space to the left and right of the ROI
-        Necessary to check that objects enter from the left
-        and disappear on the right
     Tracking would likely improve on nd2 files where
         Objects have good contrast on background
         files are high frame rate
@@ -29,8 +25,8 @@ import typing
 
 import cv2 as cv
 import numpy as np
-from tqdm import tqdm
 from pims import ND2Reader_SDK
+from tqdm import tqdm
 
 
 class DetectedObject:
@@ -120,8 +116,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     stage_x_movement = -37  # px
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        # Get information about nd2 file
-        image_h = nd2_file.metadata['height']
+        image_h = nd2_file.metadata['height']  # Get information about nd2 file
 
         if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
             nd2_file.iter_axes = 'm'
@@ -129,9 +124,6 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
         # Get total frame count for batching
         total_frames = len(nd2_file)
         batch_size = 100  # Process 100 frames at a time
-
-        if ui_app.save_overlay.get():
-            print(f"\noverlay saving in {ui_app.overlay_path}")
 
         for batch_start in range(0, total_frames, batch_size):
             batch_end = min(batch_start + batch_size, total_frames)
@@ -144,7 +136,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
 
                 # Perform operations and canny edge detection to obtain contours
                 if ui_app.flow_direction.get() == "No bias":
-                    contours = process_image(frame_data, ui_app)   # No background subtraction
+                    contours = process_image(frame_data, ui_app)  # No background subtraction
                 else:
                     foreground_mask = backSub.apply(frame_data)
                     contours = process_image(foreground_mask, ui_app)
