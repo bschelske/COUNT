@@ -1,12 +1,13 @@
-import os
 import json
+import os
 import tkinter as tk
 from tkinter import filedialog
 
 import cv2
-import numpy as np
 from pims import ND2Reader_SDK
+
 from COUNT import tracking
+
 """
 This code handles the creation of the user interface (UI).
 
@@ -206,7 +207,8 @@ class ROISelectionApp:
         os.makedirs(self.csv_folder_path.get() + "overlay/", exist_ok=True)
         self.overlay_path = self.csv_folder_path.get() + "overlay/"
         os.makedirs(self.csv_folder_path.get() + "final_results/", exist_ok=True)
-
+        if self.save_overlay.get():
+            print(f"\noverlay saving in {self.overlay_path}")
         print(".csv results save path:", self.csv_folder_path.get())
         # Close the Tkinter window
         self.master.destroy()
@@ -277,7 +279,7 @@ class ROISelectionApp:
             canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
             contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
 
-            _, contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
+            contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
             total_contours = len(contours)
             for index, cnt in enumerate(contours):
                 x, y, w, h = cv2.boundingRect(cnt)
