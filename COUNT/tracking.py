@@ -64,7 +64,7 @@ class DetectedObject:
         Assigns the DEP outlet status based on the object's position within the ROI.
     """
 
-    def __init__(self, object_id, position, size, most_recent_frame):
+    def __init__(self, object_id, contour, position, size, most_recent_frame):
         self.object_id = object_id
         self.position = position
         self.size = size
@@ -73,6 +73,7 @@ class DetectedObject:
         self.frames_tracked = 0
         self.position_history = {self.most_recent_frame: self.position}
         self.displacement_history = []
+        self.contour = contour
 
     # Deprecated?
     # def update(self, most_recent_frame, new_position):
@@ -116,12 +117,13 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     object_history_list = []  # Tracking data for every object identified
     next_new_id = 1  # ID number for first object
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+    stage_x_movement = -37  # px
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
         # Get information about nd2 file
         image_h = nd2_file.metadata['height']
 
-        if 'm' in nd2_file.sizes.keys(): # new nikon weirdness
+        if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
             nd2_file.iter_axes = 'm'
 
         # Get total frame count for batching
@@ -135,13 +137,22 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
             batch_end = min(batch_start + batch_size, total_frames)
 
             # Perform tracking on each frame
-            for frame_number in tqdm(range(batch_start, batch_end), f"Batch {batch_start//batch_size+1}"):
+            for frame_number in tqdm(range(batch_start, batch_end), f"Batch {batch_start // batch_size + 1}"):
                 frame_data = nd2_file[frame_number]
                 frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-                backSub_mask = backSub.apply(frame_data)
+                # frame_data = roi_mask(frame_data, frame_number)
+
+                # Perform operations and canny edge detection to obtain contours
+                if ui_app.flow_direction.get() == "No bias":
+                    contours = process_image(frame_data, ui_app)   # No background subtraction
+                else:
+                    foreground_mask = backSub.apply(frame_data)
+                    contours = process_image(foreground_mask, ui_app)
+
                 # Detect Objects
-                objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
-                                                                      backSub_mask=backSub_mask, ui_app=ui_app)
+                objects_in_frame_list = detect_objects(contours=contours, frame_index=frame_number, ui_app=ui_app,
+                                                       stage_x_movement=stage_x_movement)
+
                 object_history_list.extend(objects_in_frame_list)
 
                 # Expire outgoing objects
@@ -154,7 +165,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 for object_in_frame in objects_in_frame_list:
                     no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
                                                                              frame_number,
-                                                                             ui_app)
+                                                                             ui_app, stage_x_movement)
                     # Add incoming objects
                     if no_match:
                         surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
@@ -162,29 +173,30 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                                                                               frame_number)
                 # Add text, object ids to each frame, if chosen
                 if ui_app.save_overlay.get():
-                    save_overlay_frame = overlay_frame.copy()
-                    # Add text to top of frame
-                    cv.putText(save_overlay_frame,
-                               str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
-                               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                               (0, 0, 255), 2, cv.LINE_AA)
-
+                    save_overlay_frame = frame_data.copy()
+                    save_overlay_frame = cv.normalize(save_overlay_frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+                    save_overlay_frame = cv.cvtColor(save_overlay_frame, cv.COLOR_GRAY2BGR)
+                    registered_object_count = 0
                     # Add IDs to each tracked object
                     for object_id, tracked_object in surviving_objects_dict.items():
-                        if tracked_object.frames_tracked > ui_app.timeout.get()//2:
+                        if tracked_object.frames_tracked > ui_app.timeout.get() // 2:
+                            registered_object_count += 1
+                            cv.drawContours(save_overlay_frame, [tracked_object.contour], 0, (0, 0, 255), 2)
                             cv.putText(save_overlay_frame,
-                                       str(object_id),
+                                       str(tracked_object.object_id),
                                        tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
                                        (0, 0, 0), 1, cv.LINE_AA)
                         else:
                             pass
+                    # Add text to top of frame
+                    cv.putText(save_overlay_frame,
+                               str(f"Frame: {frame_number} Objects registered: {str(registered_object_count)}"),
+                               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+                               (0, 0, 255), 2, cv.LINE_AA)
 
-                # Save overlay frames to results/overlay folder (default)
-                if ui_app.save_overlay.get():
                     save_path = ui_app.overlay_path + f"{frame_number:03d}.png"
-                    cv.imwrite(save_path, overlay_frame)
+                    cv.imwrite(save_path, save_overlay_frame)
                     del save_overlay_frame
-
             import gc
             gc.collect()
 
@@ -198,30 +210,33 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     return expired_objects_dict, object_history_list
 
 
-def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
-    frame_copy = frame_data.view()
+def roi_mask(frame_data, frame_number):
+    mask = np.zeros_like(frame_data, dtype=np.uint8)
+    drift = int((230 - 197) / 151 * frame_number)
 
-    # If saving overlay frames, a copy of the original frame must be converted from gray to color
-    if ui_app.save_overlay.get():
-        overlay_frame = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        overlay_frame = cv.cvtColor(overlay_frame, cv.COLOR_GRAY2BGR)
+    # Define the channel ROIs
+    x, y, w, h = 0, 197, mask.shape[0], 53  # Channel 1 (x, y, width, height)
+    y = y + drift
+    mask[y:y + h, x:x + w] = 255
 
-    if backSub_mask.any():
-        foreground_mask = backSub_mask
-    else:
-        foreground_mask = frame_copy
+    x, y, w, h = 0, 737, mask.shape[0], 53  # Channel 2 (x, y, width, height)
+    y = y + drift
+    mask[y:y + h, x:x + w] = 255
 
-    # Process the grayscale copy of the frame for canny edge detection
-    normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-    # Morphological operation to reduce noise
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-    cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
-    # Canny edge detection
-    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
-    contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+    x, y, w, h = 0, 1295, mask.shape[0], 53  # Channel 3 (x, y, width, height)
+    y = y + drift
+    mask[y:y + h, x:x + w] = 255
 
-    frame_copy, contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
+    x, y, w, h = 0, 1833, mask.shape[0], 53  # Channel 4 (x, y, width, height)
+    y = y + drift
+    mask[y:y + h, x:x + w] = 255
 
+    # Apply the mask
+    frame_data = cv.bitwise_and(frame_data, frame_data, mask=mask)
+    return frame_data
+
+
+def detect_objects(contours, frame_index, ui_app, stage_x_movement):
     objects = []
     # Create a DetectedObject instance for each contour
     for cnt in contours:
@@ -230,17 +245,28 @@ def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
             pass
         else:
             objects.append(
-                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+                DetectedObject(object_id=None, position=(x, y), size=(w, h), contour=cnt,
+                               most_recent_frame=frame_index))
+    return objects
 
-            # Draw the contour in red onto the color frame
-            if ui_app.save_overlay.get():
-                cv.drawContours(overlay_frame, [cnt], 0, (0, 0, 255), 2)
-                frame_copy = overlay_frame
-    return objects, frame_copy
+
+def process_image(foreground_mask, ui_app):
+    foreground_mask = foreground_mask.view()
+    # Process the grayscale copy of the frame for canny edge detection
+    normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+    # Morphological operation to reduce noise
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
+    # Canny edge detection
+    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
+    contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+    # Remove overlapped objects
+    contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
+    return contours
+
 
 def remove_overlapped_objects(frame_copy, contours, cell_radius):
     mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
-
     # Draw filled contours on a mask using bounding circles
     for cnt in contours:
         (x, y), radius = cv.minEnclosingCircle(cnt)
@@ -249,7 +275,8 @@ def remove_overlapped_objects(frame_copy, contours, cell_radius):
         cv.circle(mask, center, radius, (255), -1)
     # return contours detected on overlapped objects
     contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    return frame_copy, contours
+    return contours
+
 
 def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, image_h, ui_app):
     for obj_id, tracked_obj in list(surviving_objects_dict.items()):
@@ -262,11 +289,10 @@ def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, i
                 tracked_obj.outlet_assignment(image_h)
                 expired_objects_dict[tracked_obj.object_id] = tracked_obj
                 del surviving_objects_dict[tracked_obj.object_id]
-
     return surviving_objects_dict, expired_objects_dict
 
 
-def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app):
+def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app, stage_x_movement):
     if not surviving_objects_dict:
         no_match = True
         return no_match, surviving_objects_dict
@@ -274,10 +300,18 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
     candidates = {}
     # Go through each item in the tracking queue
     for obj_id, previous_object_instance in surviving_objects_dict.items():
-        distance = calculate_distance(object_in_frame, previous_object_instance)
-        if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
-                distance < ui_app.max_centroid_distance.get()):
-            candidates[previous_object_instance] = distance
+        distance = calculate_distance(object_in_frame, previous_object_instance, stage_x_movement)
+        # Bias tracking depending on flow
+        if ui_app.flow_direction.get() == "No bias":
+            if distance < ui_app.max_centroid_distance.get():
+                candidates[previous_object_instance] = distance
+        if ui_app.flow_direction.get() == "Towards Right (--->)":
+            if moving_right(object_in_frame, previous_object_instance, distance, ui_app):
+                candidates[previous_object_instance] = distance
+        else:
+            if moving_left(object_in_frame, previous_object_instance, distance, ui_app):
+                candidates[previous_object_instance] = distance
+
     if candidates:
         matched_object = min(candidates, key=candidates.get)
         object_in_frame.object_id = matched_object.object_id
@@ -291,6 +325,22 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
         return no_match, surviving_objects_dict
 
 
+def moving_left(object_in_frame, previous_object_instance, distance, ui_app):
+    if (object_in_frame.position[0] < previous_object_instance.position[0]) and (
+            distance < ui_app.max_centroid_distance.get()):
+        return True
+    else:
+        return False
+
+
+def moving_right(object_in_frame, previous_object_instance, distance, ui_app):
+    if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
+            distance < ui_app.max_centroid_distance.get()):
+        return True
+    else:
+        return False
+
+
 def add_new_objects(new_object, objects_in_previous_frame_dict, next_new_id, frame_number):
     new_object.object_id = next_new_id
     new_object.most_recent_frame = frame_number
@@ -299,13 +349,15 @@ def add_new_objects(new_object, objects_in_previous_frame_dict, next_new_id, fra
     return objects_in_previous_frame_dict, next_new_id
 
 
-def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> int:
+def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject, camera_shift=0) -> int:
     """Calculates the euclidean distance between two objects"""
     possible_center = detected_object1.center()
     tracked_center = detected_object2.center()
+    adjusted_tracked_x = tracked_center[0] + camera_shift
     distance = int(
-        (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
+        (((possible_center[0] - adjusted_tracked_x) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
     return distance
+
 
 def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
