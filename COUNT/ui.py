@@ -40,7 +40,8 @@ class ROISelectionApp:
             value=self.settings.get("timeout"))  # How long before an object is considered lost (frames)
         self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
-        self.flow_direction = tk.StringVar(value="Towards Right (--->)")
+        self.flow_direction = tk.StringVar(value=self.settings.get("flow_direction"))
+        self.background_subtraction = tk.IntVar(value=self.settings.get("background_subtraction"))
         self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_toolbar()
         self.create_widgets()  # This is the part of the UI you can see
@@ -86,13 +87,11 @@ class ROISelectionApp:
         self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
         self.edge_preview_button.grid(row=8, column=1, padx=5, pady=5)
 
-        # Flow direction
-        tk.Label(self.master, text="Flow direction", anchor=justification).grid(sticky="w", row=7, column=0, padx=5,
-                                                                                pady=5)
-        self.flow_direction_button = tk.OptionMenu(self.master, self.flow_direction,
-                                                 *["Towards Right (--->)", "Towards left (<---)"])
-
-        self.flow_direction_button.grid(row=7, column=1, padx=5, pady=5)
+        # Background Subtraction Check Box
+        self.background_subtraction_checkbox = tk.Checkbutton(self.master, text="Background subtraction",
+                                                              variable=self.background_subtraction, onvalue=1,
+                                                              offvalue=0)
+        self.background_subtraction_checkbox.grid(row=7, column=1, padx=5, pady=5)
 
         # Canny Upper input field
         tk.Label(self.master, text="Canny Upper:", anchor=justification).grid(sticky="w", row=2, column=0, padx=5,
@@ -152,6 +151,8 @@ class ROISelectionApp:
                              "canny_lower": 85,
                              "max_centroid_distance": 70,
                              "timeout": 5,
+                             "flow_direction": "Towards Right (--->)",
+                             "background_subtraction": 1,
                              "cell_radius": 6,
                              "save_overlay": False,
                              "csv_save_path": "results/"}
@@ -161,6 +162,8 @@ class ROISelectionApp:
                     "canny_lower": self.canny_lower.get(),
                     "max_centroid_distance": self.max_centroid_distance.get(),
                     "timeout": self.timeout.get(),
+                    "flow_direction": self.flow_direction.get(),
+                    "background_subtraction": self.background_subtraction.get(),
                     "cell_radius": self.cell_radius.get(),
                     "save_overlay": self.save_overlay.get(),
                     "csv_save_path": self.csv_folder_path.get()
@@ -225,34 +228,88 @@ class ROISelectionApp:
         ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
         return ROI
 
+    def nothing(self, x):
+        pass
+
     def preview_edge_detection(self):
         """This method is incredibly jank"""
-
         # Error handling
-        if self.file_path == '' and self.folder_path.get() == '':
+        if not self.file_path and not self.folder_path.get():
             print("Choose a file first!")
         else:
             self.input_handling()
 
-
         # Get frames
         frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
+        frame_number = 0
+        canny_upper = self.canny_upper.get()
+        canny_lower = self.canny_lower.get()
         # Display images
-        cv2.namedWindow('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
-        cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])
+        cv2.namedWindow('Preview', cv2.WINDOW_NORMAL)
+        cv2.createTrackbar('Canny Upper', 'Preview', int(canny_upper), 255, self.nothing)
+        cv2.createTrackbar('Canny Lower', 'Preview', int(canny_lower), 255, self.nothing)
+        cv2.createTrackbar('Frame', 'Preview', int(frame_number), len(frames) - 1, self.nothing)
 
         while True:
-            # Check if the window is still open
-            if cv2.getWindowProperty('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WND_PROP_VISIBLE) < 1:
-                break  # Exit loop if the window is closed
+            try:
+                cv2.imshow('Preview', frames[frame_number])
+            except cv2.error as e:
+                print("Error displaying image:", e)
+                break
+            # if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+            #     break  # Exit loop if the window is closed
 
             k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
-            if k == 53:  # Key code 5
-                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
-            elif k == 52:  # Key code 4
-                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
-            elif k == 27:  # ESC key
+            if k == 27:  # ESC key
                 break
+
+            canny_upper = cv2.getTrackbarPos('Canny Upper', 'Preview')
+            canny_lower = cv2.getTrackbarPos('Canny Lower', 'Preview')
+            frame_number = cv2.getTrackbarPos('Frame', 'Preview')
+
+        self.canny_upper.set(canny_upper)
+        self.canny_lower.set(canny_lower)
+        cv2.destroyAllWindows()
+        self.create_widgets()
+
+    def preview_detection(self, frame_index):
+        with ND2Reader_SDK(self.files[0]) as nd2_file:
+            if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
+                nd2_file.iter_axes = 'm'
+            # MOG2 Background Method:
+            for frame in nd2_file[:frame_index + 1]:  # First five frames to calculate background
+                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                foreground_mask = backSub.apply(frame)
+
+            # Get current frame
+            frame = nd2_file[frame_index]
+            frame_copy = frame.copy()  # Copy for overlay later...
+            frame_copy = cv2.normalize(frame_copy, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+
+            # Do background subtraction, and normalize for canny
+            normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            # Morphological operation to reduce noise
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            normalized_frame = cv2.morphologyEx(normalized_frame, cv2.MORPH_OPEN, kernel)
+            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
+            contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+
+            contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
+            total_contours = len(contours)
+            for index, cnt in enumerate(contours):
+                x, y, w, h = cv2.boundingRect(cnt)
+                if (w > self.cell_radius.get() * 10) or (h > self.cell_radius.get() * 10):
+                    total_contours -= 1
+                else:
+                    cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+
+            cv2.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}"), (10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        return frame_copy
+        contours = tracking.process_image(foreground_mask=foreground_mask, ui_app=self)
+
+        pass
 
     def edge_detection_handling(self, frame_index):
         """Edge detection for UI preview"""
