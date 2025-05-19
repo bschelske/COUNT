@@ -3,6 +3,8 @@
     "canny_lower": 85,
     "max_centroid_distance": 70,
     "timeout": 5,
+    "flow_direction": "",
+    "background_subtraction": true,
     "cell_radius": 5,
     "save_overlay": false,
     "csv_save_path": "results/"

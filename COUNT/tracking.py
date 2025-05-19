@@ -71,19 +71,6 @@ class DetectedObject:
         self.displacement_history = []
         self.contour = contour
 
-    # Deprecated?
-    # def update(self, most_recent_frame, new_position):
-    #     self.frames_tracked += 1
-    #     self.most_recent_frame = most_recent_frame
-    #
-    #     self.displacement_history.append(new_position[0] - self.position[0])
-    #
-    #     self.position = new_position
-    #     self.position_history[self.most_recent_frame] = self.position
-    #
-    # def update_frames_tracked(self):
-    #     self.frames_tracked += 1
-
     def center(self):
         return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
 
@@ -135,7 +122,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 # frame_data = roi_mask(frame_data, frame_number)
 
                 # Perform operations and canny edge detection to obtain contours
-                if ui_app.flow_direction.get() == "No bias":
+                if ui_app.background_subtraction.get() is False:
                     contours = process_image(frame_data, ui_app)  # No background subtraction
                 else:
                     foreground_mask = backSub.apply(frame_data)

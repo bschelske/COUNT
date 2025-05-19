@@ -41,7 +41,7 @@ class ROISelectionApp:
         self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
         self.flow_direction = tk.StringVar(value=self.settings.get("flow_direction"))
-        self.background_subtraction = tk.IntVar(value=self.settings.get("background_subtraction"))
+        self.background_subtraction = tk.BooleanVar(value=self.settings.get("background_subtraction"))
         self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_toolbar()
         self.create_widgets()  # This is the part of the UI you can see
@@ -49,7 +49,6 @@ class ROISelectionApp:
     def create_toolbar(self):
         menu = tk.Menu(self.master)
         self.master.config(menu=menu)
-
         file_ = tk.Menu(menu, tearoff=0)
         menu.add_cascade(label='File', menu=file_)
         file_.add_command(label='Save as default settings', command=self.save_settings)
@@ -89,8 +88,8 @@ class ROISelectionApp:
 
         # Background Subtraction Check Box
         self.background_subtraction_checkbox = tk.Checkbutton(self.master, text="Background subtraction",
-                                                              variable=self.background_subtraction, onvalue=1,
-                                                              offvalue=0)
+                                                              variable=self.background_subtraction, onvalue=True,
+                                                              offvalue=False)
         self.background_subtraction_checkbox.grid(row=7, column=1, padx=5, pady=5)
 
         # Canny Upper input field
@@ -152,7 +151,7 @@ class ROISelectionApp:
                              "max_centroid_distance": 70,
                              "timeout": 5,
                              "flow_direction": "Towards Right (--->)",
-                             "background_subtraction": 1,
+                             "background_subtraction": True,
                              "cell_radius": 6,
                              "save_overlay": False,
                              "csv_save_path": "results/"}
