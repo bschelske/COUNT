@@ -239,76 +239,52 @@ class ROISelectionApp:
             self.input_handling()
 
         # Get frames
-        frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
-        frame_number = 0
-        canny_upper = self.canny_upper.get()
-        canny_lower = self.canny_lower.get()
+        self.preview_frame = 0
+        self.canny_upper_preview = self.canny_upper.get()
+        self.canny_lower_preview = self.canny_lower.get()
         # Display images
-        cv2.namedWindow('Preview', cv2.WINDOW_NORMAL)
-        cv2.createTrackbar('Canny Upper', 'Preview', int(canny_upper), 255, self.nothing)
-        cv2.createTrackbar('Canny Lower', 'Preview', int(canny_lower), 255, self.nothing)
-        cv2.createTrackbar('Frame', 'Preview', int(frame_number), len(frames) - 1, self.nothing)
+        cv2.namedWindow('Preview (ESC to confirm)', cv2.WINDOW_NORMAL)
+        cv2.createTrackbar('Upper', 'Preview (ESC to confirm)', int(self.canny_upper_preview), 255, self.nothing)
+        cv2.createTrackbar('Lower', 'Preview (ESC to confirm)', int(self.canny_lower_preview), 255, self.nothing)
+        cv2.createTrackbar('Frame', 'Preview (ESC to confirm)', int(self.preview_frame), 5, self.nothing)
 
         while True:
-            try:
-                cv2.imshow('Preview', frames[frame_number])
-            except cv2.error as e:
-                print("Error displaying image:", e)
-                break
-            # if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
-            #     break  # Exit loop if the window is closed
+            self.canny_upper_preview = cv2.getTrackbarPos('Upper', 'Preview (ESC to confirm)')
+            self.canny_lower_preview = cv2.getTrackbarPos('Lower', 'Preview (ESC to confirm)')
+            self.preview_frame = cv2.getTrackbarPos('Frame', 'Preview (ESC to confirm)')
+            frame = self.preview_detection()
+            cv2.imshow('Preview (ESC to confirm)', frame)
 
-            k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
+            self.canny_upper.set(self.canny_upper_preview)
+            self.canny_lower.set(self.canny_lower_preview)
+            k = cv2.waitKey(30) & 0xFF  # Wait indefinitely for a key press
             if k == 27:  # ESC key
                 break
-
-            canny_upper = cv2.getTrackbarPos('Canny Upper', 'Preview')
-            canny_lower = cv2.getTrackbarPos('Canny Lower', 'Preview')
-            frame_number = cv2.getTrackbarPos('Frame', 'Preview')
-
-        self.canny_upper.set(canny_upper)
-        self.canny_lower.set(canny_lower)
         cv2.destroyAllWindows()
-        self.create_widgets()
 
-    def preview_detection(self, frame_index):
+    def preview_detection(self):
         with ND2Reader_SDK(self.files[0]) as nd2_file:
             if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
                 nd2_file.iter_axes = 'm'
-            # MOG2 Background Method:
-            for frame in nd2_file[:frame_index + 1]:  # First five frames to calculate background
-                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                foreground_mask = backSub.apply(frame)
 
-            # Get current frame
-            frame = nd2_file[frame_index]
-            frame_copy = frame.copy()  # Copy for overlay later...
-            frame_copy = cv2.normalize(frame_copy, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+            frame_data = nd2_file[self.preview_frame]
+            # 8-bit normalization required for Canny
+            frame_data = cv2.normalize(frame_data, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            save_overlay_frame = frame_data.copy()
+            save_overlay_frame = cv2.cvtColor(save_overlay_frame, cv2.COLOR_GRAY2BGR)
 
-            # Do background subtraction, and normalize for canny
-            normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            # Morphological operation to reduce noise
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            normalized_frame = cv2.morphologyEx(normalized_frame, cv2.MORPH_OPEN, kernel)
-            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
-            contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+            # Perform operations and canny edge detection to obtain contours
+            if self.background_subtraction.get() is False:
+                # No background subtraction
+                contours = tracking.process_image(frame_data, self)
+            else:
+                # Background subtraction
+                backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+                foreground_mask = backSub.apply(frame_data)
+                contours = tracking.process_image(foreground_mask, self)
+            save_overlay_frame = cv2.drawContours(save_overlay_frame, contours, -1, (0, 0, 255), 2)
+        return save_overlay_frame
 
-            contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
-            total_contours = len(contours)
-            for index, cnt in enumerate(contours):
-                x, y, w, h = cv2.boundingRect(cnt)
-                if (w > self.cell_radius.get() * 10) or (h > self.cell_radius.get() * 10):
-                    total_contours -= 1
-                else:
-                    cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-
-            cv2.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}"), (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-        return frame_copy
-        contours = tracking.process_image(foreground_mask=foreground_mask, ui_app=self)
-
-        pass
 
     def edge_detection_handling(self, frame_index):
         """Edge detection for UI preview"""

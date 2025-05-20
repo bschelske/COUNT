@@ -4,7 +4,7 @@
     "max_centroid_distance": 70,
     "timeout": 5,
     "flow_direction": "",
-    "background_subtraction": true,
+    "background_subtraction": false,
     "cell_radius": 5,
     "save_overlay": false,
     "csv_save_path": "results/"
