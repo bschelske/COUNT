@@ -249,9 +249,12 @@ def remove_overlapped_objects(frame_copy, contours, cell_radius):
     # Draw filled contours on a mask using bounding circles
     for cnt in contours:
         (x, y), radius = cv.minEnclosingCircle(cnt)
-        center = (int(x), int(y))
-        radius = int(radius + cell_radius)
-        cv.circle(mask, center, radius, (255), -1)
+        if radius > cell_radius * 2:
+            pass
+        else:
+            center = (int(x), int(y))
+            radius = int(radius + 0.3 * cell_radius)
+            cv.circle(mask, center, radius, (255), -1)
     # return contours detected on overlapped objects
     contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     return contours
