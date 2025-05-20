@@ -251,6 +251,12 @@ class ROISelectionApp:
         while True:
             self.canny_upper_preview = cv2.getTrackbarPos('Upper', 'Preview (ESC to confirm)')
             self.canny_lower_preview = cv2.getTrackbarPos('Lower', 'Preview (ESC to confirm)')
+            # Lower should not exceed upper
+            if self.canny_lower_preview > self.canny_upper_preview:
+                self.canny_lower_preview = self.canny_upper_preview
+                cv2.setTrackbarPos('Upper', 'Preview (ESC to confirm)', self.canny_upper_preview)
+                cv2.setTrackbarPos('Lower', 'Preview (ESC to confirm)', self.canny_lower_preview)
+
             self.preview_frame = cv2.getTrackbarPos('Frame', 'Preview (ESC to confirm)')
             frame = self.preview_detection()
             cv2.imshow('Preview (ESC to confirm)', frame)
@@ -283,6 +289,8 @@ class ROISelectionApp:
                 foreground_mask = backSub.apply(frame_data)
                 contours = tracking.process_image(foreground_mask, self)
             save_overlay_frame = cv2.drawContours(save_overlay_frame, contours, -1, (0, 0, 255), 2)
+            cv2.putText(save_overlay_frame, str(f"Frame {self.preview_frame + 1} Objects: {len(contours)}"), (10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
         return save_overlay_frame
 
 
