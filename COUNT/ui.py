@@ -29,8 +29,6 @@ class ROISelectionApp:
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
         self.csv_folder_path = tk.StringVar(value=self.settings.get("csv_save_path"))  # Default csv save path
         self.overlay_path = ""
-        self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
-        self.roi_width = tk.IntVar(value=2048)  # Default value for ROI Width
         self.canny_upper = tk.IntVar(
             value=self.settings.get("canny_upper"))  # Default value for upper canny threshold (3:1 ratio)
         self.canny_lower = tk.IntVar(value=self.settings.get("canny_lower"))  # Default value for lower canny threshold
@@ -177,9 +175,10 @@ class ROISelectionApp:
     def choose_file(self):
         self.file_path = filedialog.askopenfilename(filetypes=[("ND2 files", "*.nd2")])
         with ND2Reader_SDK(self.file_path) as nd2_file:
-            self.roi_width.set(nd2_file.metadata['width'])
-            self.roi_height.set(nd2_file.metadata['height'])
-        print("Selection:", self.file_path)
+            if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
+                nd2_file.iter_axes = 'm'
+            self.total_frames = len(nd2_file)
+        print("Selection:", self.file_path, self.total_frames, "frames")
 
     def choose_folder(self):
         self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
@@ -222,11 +221,6 @@ class ROISelectionApp:
             raise ValueError(
                 "...Why did you pick a file AND a folder? Choose ONE or the OTHER. What did you expect to happen? :)")
 
-
-    def get_roi(self):
-        ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
-        return ROI
-
     def nothing(self, x):
         pass
 
@@ -246,7 +240,8 @@ class ROISelectionApp:
         cv2.namedWindow('Preview (ESC to confirm)', cv2.WINDOW_NORMAL)
         cv2.createTrackbar('Upper', 'Preview (ESC to confirm)', int(self.canny_upper_preview), 255, self.nothing)
         cv2.createTrackbar('Lower', 'Preview (ESC to confirm)', int(self.canny_lower_preview), 255, self.nothing)
-        cv2.createTrackbar('Frame', 'Preview (ESC to confirm)', int(self.preview_frame), 5, self.nothing)
+        cv2.createTrackbar('Frame', 'Preview (ESC to confirm)', int(self.preview_frame), self.total_frames - 1,
+                           self.nothing)
 
         while True:
             self.canny_upper_preview = cv2.getTrackbarPos('Upper', 'Preview (ESC to confirm)')
@@ -269,6 +264,8 @@ class ROISelectionApp:
         cv2.destroyAllWindows()
 
     def preview_detection(self):
+        """Run contour detection using tracking.process_image() and user input from trackbars"""
+
         with ND2Reader_SDK(self.files[0]) as nd2_file:
             if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
                 nd2_file.iter_axes = 'm'
@@ -289,48 +286,9 @@ class ROISelectionApp:
                 foreground_mask = backSub.apply(frame_data)
                 contours = tracking.process_image(foreground_mask, self)
             save_overlay_frame = cv2.drawContours(save_overlay_frame, contours, -1, (0, 0, 255), 2)
-            cv2.putText(save_overlay_frame, str(f"Frame {self.preview_frame + 1} Objects: {len(contours)}"), (10, 40),
+            cv2.putText(save_overlay_frame, str(f"Frame {self.preview_frame} Objects: {len(contours)}"), (10, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
         return save_overlay_frame
-
-
-    def edge_detection_handling(self, frame_index):
-        """Edge detection for UI preview"""
-        backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        with ND2Reader_SDK(self.files[0]) as nd2_file:
-            if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
-                nd2_file.iter_axes = 'm'
-            # MOG2 Background Method:
-            for frame in nd2_file[:frame_index + 1]:  # First five frames to calculate background
-                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                foreground_mask = backSub.apply(frame)
-
-            # Get current frame
-            frame = nd2_file[frame_index]
-            frame_copy = frame.copy()  # Copy for overlay later...
-            frame_copy = cv2.normalize(frame_copy, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
-
-            # Do background subtraction, and normalize for canny
-            normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-            # Morphological operation to reduce noise
-            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-            normalized_frame = cv2.morphologyEx(normalized_frame, cv2.MORPH_OPEN, kernel)
-            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
-            contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
-
-            contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
-            total_contours = len(contours)
-            for index, cnt in enumerate(contours):
-                x, y, w, h = cv2.boundingRect(cnt)
-                if (w > self.cell_radius.get() * 10) or (h > self.cell_radius.get() * 10):
-                    total_contours -= 1
-                else:
-                    cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
-
-            cv2.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}"), (10, 40),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-        return frame_copy
 
     def quit_ui(self):
         self.master.destroy()
