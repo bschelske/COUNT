@@ -34,7 +34,7 @@ def main():
             file_name = os.path.basename(nd2_file)[:-4]
 
             # Track the nd2 file using MOG2 background subtraction
-            object_final_position, active_id_trajectory = tracking.nd2_mog_contours(nd2_file, app)
+            object_final_position, active_id_trajectory = tracking.track(nd2_file, app)
 
             csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
             trajectory_csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_trajectory_results.csv")

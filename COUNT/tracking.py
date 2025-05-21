@@ -81,7 +81,7 @@ class DetectedObject:
             self.DEP_outlet = False  # Not DEP Responsive
 
 
-def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
+def track(nd2_file_path: str, ui_app) -> typing.Tuple[
     typing.List[DetectedObject], typing.List[DetectedObject]]:
     """
     Process ND2 file to detect and track objects across frames.

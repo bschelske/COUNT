@@ -1,6 +1,6 @@
+import time
 import tkinter as tk
 import unittest
-import time
 
 from COUNT.tracking import *
 from COUNT.ui import ROISelectionApp
@@ -315,7 +315,7 @@ class TestTracking(unittest.TestCase):
         self.assertEqual(result_list, intended_expire_dict)
 
     def test_nd2_mog_contours(self):
-        self.mog_results_dict, results_history_list = nd2_mog_contours(self.my_ui.file_path, self.my_ui)
+        self.mog_results_dict, results_history_list = track(self.my_ui.file_path, self.my_ui)
         # print(results_dict)
         self.assertEqual(len(self.mog_results_dict), 100)
 

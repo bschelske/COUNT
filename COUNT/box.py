@@ -1,14 +1,14 @@
-from boxsdk import OAuth2, Client
+import os
+import tempfile
+import threading
+import tkinter as tk
 import webbrowser
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
-import threading
-import os
-import tempfile
-import tkinter as tk
+
+from boxsdk import OAuth2, Client
 from dotenv import load_dotenv
 from tqdm import tqdm
-
 
 from COUNT import ui, tracking
 
@@ -194,7 +194,7 @@ def main():
         temp_file_path = download_file_from_box(client, file_id)
         try:
             # COUNT onto downloaded temp file
-            object_final_position, active_id_trajectory = tracking.nd2_mog_contours(temp_file_path, app)
+            object_final_position, active_id_trajectory = tracking.track(temp_file_path, app)
             tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
 
         finally:
@@ -212,7 +212,7 @@ def main():
                 temp_file_path = download_file_from_box(client, item.id)  # temp download the nd2 file
                 try:
                     # COUNT onto downloaded temp file
-                    object_final_position, active_id_trajectory = tracking.nd2_mog_contours(temp_file_path, app)
+                    object_final_position, active_id_trajectory = tracking.track(temp_file_path, app)
                     tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
 
                 finally:
