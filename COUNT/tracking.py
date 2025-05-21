@@ -149,30 +149,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                                                                               frame_number)
                 # Add text, object ids to each frame, if chosen
                 if ui_app.save_overlay.get():
-                    save_overlay_frame = frame_data.copy()
-                    save_overlay_frame = cv.normalize(save_overlay_frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-                    save_overlay_frame = cv.cvtColor(save_overlay_frame, cv.COLOR_GRAY2BGR)
-                    registered_object_count = 0
-                    # Add IDs to each tracked object
-                    for object_id, tracked_object in surviving_objects_dict.items():
-                        if tracked_object.frames_tracked > ui_app.timeout.get() // 2:
-                            registered_object_count += 1
-                            cv.drawContours(save_overlay_frame, [tracked_object.contour], 0, (0, 0, 255), 2)
-                            cv.putText(save_overlay_frame,
-                                       str(tracked_object.object_id),
-                                       tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
-                                       (0, 0, 0), 1, cv.LINE_AA)
-                        else:
-                            pass
-                    # Add text to top of frame
-                    cv.putText(save_overlay_frame,
-                               str(f"Frame: {frame_number} Objects registered: {str(registered_object_count)}"),
-                               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                               (0, 0, 255), 2, cv.LINE_AA)
-
-                    save_path = ui_app.overlay_path + f"{frame_number:03d}.png"
-                    cv.imwrite(save_path, save_overlay_frame)
-                    del save_overlay_frame
+                    save_overlays(frame_data, frame_number, surviving_objects_dict, ui_app)
             import gc
             gc.collect()
 
@@ -185,6 +162,32 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     expired_objects_dict.update(surviving_objects_dict)
     return expired_objects_dict, object_history_list
 
+
+def save_overlays(frame_data, frame_number, surviving_objects_dict, ui_app):
+    save_overlay_frame = frame_data.copy()
+    save_overlay_frame = cv.normalize(save_overlay_frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+    save_overlay_frame = cv.cvtColor(save_overlay_frame, cv.COLOR_GRAY2BGR)
+    registered_object_count = 0
+    # Add IDs to each tracked object
+    for object_id, tracked_object in surviving_objects_dict.items():
+        if tracked_object.frames_tracked > ui_app.timeout.get() // 2:
+            registered_object_count += 1
+            cv.drawContours(save_overlay_frame, [tracked_object.contour], 0, (0, 0, 255), 2)
+            cv.putText(save_overlay_frame,
+                       str(tracked_object.object_id),
+                       tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
+                       (0, 0, 0), 1, cv.LINE_AA)
+        else:
+            pass
+    # Add text to top of frame
+    cv.putText(save_overlay_frame,
+               str(f"Frame: {frame_number} Objects registered: {str(registered_object_count)}"),
+               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
+               (0, 0, 255), 2, cv.LINE_AA)
+
+    save_path = ui_app.overlay_path + f"{frame_number:03d}.png"
+    cv.imwrite(save_path, save_overlay_frame)
+    del save_overlay_frame
 
 def roi_mask(frame_data, frame_number):
     mask = np.zeros_like(frame_data, dtype=np.uint8)
