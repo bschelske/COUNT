@@ -19,7 +19,7 @@ The UI is used to gather parameters for the tracking.
 """
 
 
-class ROISelectionApp:
+class UserInterfaceApp:
     """Contains all information to begin tracking, collected in the user interface"""
 
     def __init__(self, master):
@@ -335,6 +335,6 @@ def create_ui():
     root = tk.Tk()
     root.iconbitmap(r'count.ico')
     root.title("Count Objects Until No Tomorrow (C.O.U.N.T.)")
-    app = ROISelectionApp(root)
+    app = UserInterfaceApp(root)
     root.mainloop()
     return app

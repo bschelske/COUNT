@@ -3,7 +3,7 @@ import tkinter as tk
 import unittest
 
 from COUNT.tracking import *
-from COUNT.ui import ROISelectionApp
+from COUNT.ui import UserInterfaceApp
 
 
 # TODO: Expand upon test cases for each function
@@ -14,7 +14,7 @@ class TestTracking(unittest.TestCase):
         self.obj1 = DetectedObject(object_id=1, position=(1, 2), size=(2, 2), most_recent_frame=1)
         self.obj2 = DetectedObject(object_id=2, position=(3, 6), size=(2, 2), most_recent_frame=1)
 
-        self.my_ui = ROISelectionApp(tk.Tk())
+        self.my_ui = UserInterfaceApp(tk.Tk())
         self.my_ui.file_path = r'C:\Users\bensc\PycharmProjects\COUNT_synth\100_avi.nd2'
         self.my_ui.cell_radius = tk.IntVar(value=3)
         self.my_ui.roi_height = tk.IntVar(value=512)
