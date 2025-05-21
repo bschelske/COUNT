@@ -100,7 +100,6 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
     object_history_list = []  # Tracking data for every object identified
     next_new_id = 1  # ID number for first object
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-    stage_x_movement = -37  # px
 
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
         image_h = nd2_file.metadata['height']  # Get information about nd2 file
@@ -119,7 +118,6 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
             for frame_number in tqdm(range(batch_start, batch_end), f"Batch {batch_start // batch_size + 1}"):
                 frame_data = nd2_file[frame_number]
                 frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-                # frame_data = roi_mask(frame_data, frame_number)
 
                 # Perform operations and canny edge detection to obtain contours
                 if ui_app.background_subtraction.get() is False:
@@ -129,8 +127,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                     contours = process_image(foreground_mask, ui_app)
 
                 # Detect Objects
-                objects_in_frame_list = detect_objects(contours=contours, frame_index=frame_number, ui_app=ui_app,
-                                                       stage_x_movement=stage_x_movement)
+                objects_in_frame_list = detect_objects(contours=contours, frame_index=frame_number, ui_app=ui_app)
 
                 object_history_list.extend(objects_in_frame_list)
 
@@ -144,7 +141,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
                 for object_in_frame in objects_in_frame_list:
                     no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
                                                                              frame_number,
-                                                                             ui_app, stage_x_movement)
+                                                                             ui_app)
                     # Add incoming objects
                     if no_match:
                         surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
@@ -215,7 +212,7 @@ def roi_mask(frame_data, frame_number):
     return frame_data
 
 
-def detect_objects(contours, frame_index, ui_app, stage_x_movement):
+def detect_objects(contours, frame_index, ui_app):
     objects = []
     # Create a DetectedObject instance for each contour
     for cnt in contours:
@@ -231,6 +228,7 @@ def detect_objects(contours, frame_index, ui_app, stage_x_movement):
 
 def process_image(foreground_mask, ui_app):
     foreground_mask = foreground_mask.view()
+
     # Process the grayscale copy of the frame for canny edge detection
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
     # Morphological operation to reduce noise
@@ -274,7 +272,7 @@ def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, i
     return surviving_objects_dict, expired_objects_dict
 
 
-def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app, stage_x_movement):
+def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app):
     if not surviving_objects_dict:
         no_match = True
         return no_match, surviving_objects_dict
@@ -282,18 +280,10 @@ def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number,
     candidates = {}
     # Go through each item in the tracking queue
     for obj_id, previous_object_instance in surviving_objects_dict.items():
-        distance = calculate_distance(object_in_frame, previous_object_instance, stage_x_movement)
-        # Bias tracking depending on flow
-        if ui_app.flow_direction.get() == "No bias":
-            if distance < ui_app.max_centroid_distance.get():
-                candidates[previous_object_instance] = distance
-        if ui_app.flow_direction.get() == "Towards Right (--->)":
-            if moving_right(object_in_frame, previous_object_instance, distance, ui_app):
-                candidates[previous_object_instance] = distance
-        else:
-            if moving_left(object_in_frame, previous_object_instance, distance, ui_app):
-                candidates[previous_object_instance] = distance
-
+        distance = calculate_distance(object_in_frame, previous_object_instance)
+        if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
+                distance < ui_app.max_centroid_distance.get()):
+            candidates[previous_object_instance] = distance
     if candidates:
         matched_object = min(candidates, key=candidates.get)
         object_in_frame.object_id = matched_object.object_id
