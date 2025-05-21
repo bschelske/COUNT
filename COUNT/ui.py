@@ -31,6 +31,8 @@ class ROISelectionApp:
         self.folder_path = tk.StringVar()  # Variable to store the selected folder path
         self.csv_folder_path = tk.StringVar(value=self.settings.get("csv_save_path"))  # Default csv save path
         self.overlay_path = ""
+
+        # Tracking Parameters
         self.canny_upper = tk.IntVar(
             value=self.settings.get("canny_upper"))  # Default value for upper canny threshold (3:1 ratio)
         self.canny_lower = tk.IntVar(value=self.settings.get("canny_lower"))  # Default value for lower canny threshold
@@ -43,6 +45,9 @@ class ROISelectionApp:
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
         self.flow_direction = tk.StringVar(value=self.settings.get("flow_direction"))
         self.background_subtraction = tk.BooleanVar(value=self.settings.get("background_subtraction"))
+        self.stage_x_movement = 0  # to implement?
+
+        # Create UI
         self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_toolbar()
         self.create_widgets()  # This is the part of the UI you can see
