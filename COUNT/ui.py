@@ -165,7 +165,8 @@ class UserInterfaceApp:
                              "cell_min_radius": 2,
                              "cell_max_radius": 6,
                              "save_overlay": False,
-                             "csv_save_path": "results/"}
+                             "csv_save_path": "results/",
+                             "file_path": ""}
 
     def save_settings(self):
         settings = {"canny_upper": self.canny_upper.get(),
@@ -177,7 +178,8 @@ class UserInterfaceApp:
                     "cell_min_radius": self.cell_min_radius.get(),
                     "cell_max_radius": self.cell_max_radius.get(),
                     "save_overlay": self.save_overlay.get(),
-                    "csv_save_path": self.csv_folder_path.get()
+                    "csv_save_path": self.csv_folder_path.get(),
+                    "file_path": self.file_path
                     }
         with open(self.SETTINGS_PATH, "w") as file:
             json.dump(settings, file, indent=4)
