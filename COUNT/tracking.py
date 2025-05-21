@@ -217,8 +217,8 @@ def detect_objects(contours, frame_index, ui_app):
     # Create a DetectedObject instance for each contour
     for cnt in contours:
         x, y, w, h = cv.boundingRect(cnt)
-        if (w > ui_app.cell_radius.get() * 10) or (h > ui_app.cell_radius.get() * 10):
-            pass
+        if (w > ui_app.cell_max_radius.get() * 20) or (h > ui_app.cell_max_radius.get() * 20):
+            continue
         else:
             objects.append(
                 DetectedObject(object_id=None, position=(x, y), size=(w, h), contour=cnt,
@@ -232,31 +232,56 @@ def process_image(foreground_mask, ui_app):
     # Process the grayscale copy of the frame for canny edge detection
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
     # Morphological operation to reduce noise
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
+    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (2, 2))
     cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
     # Canny edge detection
-    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
+    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 3)
     contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
     # Remove overlapped objects
-    contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
+    mask = np.zeros(canny_img.shape[:2], dtype=np.uint8)
+    contours = remove_overlapped_objects(mask, contours, ui_app.cell_max_radius.get(), ui_app.cell_min_radius.get())
     return contours
 
 
-def remove_overlapped_objects(frame_copy, contours, cell_radius):
-    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
-    # Draw filled contours on a mask using bounding circles
-    for cnt in contours:
+def remove_overlapped_objects(mask, contours, max_cell_radius, min_cell_radius):
+    """
+    Remove overlapped objects based on enclosing circles.
+
+    Args:
+        frame_copy: Copy of the frame
+        contours: List of contours
+        cell_radius: Expected radius of cells (3px for 6px diameter)
+
+    Returns:
+        Filtered list of contours
+    """
+    min_circularity = 0.5
+
+    cv.drawContours(mask, contours, -1, (255, 255, 255), -1)
+    # Return contours detected on overlapped objects
+    mask_contours, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+    contours = []
+    for cnt in mask_contours:
+        # Check circularity of objects
+        area = cv.contourArea(cnt)
+        perimeter = cv.arcLength(cnt, True)
+
+        # Skip if perimeter is too small to calculate meaningful circularity
+        if perimeter <= 0:
+            continue
+
+        # Remove big blobs
         (x, y), radius = cv.minEnclosingCircle(cnt)
-        if radius > cell_radius * 2:
-            pass
-        else:
-            center = (int(x), int(y))
-            radius = int(radius + 0.3 * cell_radius)
-            cv.circle(mask, center, radius, (255), -1)
-    # return contours detected on overlapped objects
-    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    return contours
+        if radius < min_cell_radius or radius > max_cell_radius:  # Stricter upper bound
+            continue
 
+        # Calculate circularity: 4*pi*area/perimeter^2 (1.0 means perfect circle)
+        circularity = 4 * np.pi * area / (perimeter * perimeter)
+
+        # Validate based on shape and size
+        if circularity >= min_circularity:
+            contours.append(cnt)
+    return contours
 
 def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, image_h, ui_app):
     for obj_id, tracked_obj in list(surviving_objects_dict.items()):
