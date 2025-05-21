@@ -121,10 +121,10 @@ class ROISelectionApp:
         tk.Label(self.master, text="Cell size exclusion, radii (min, max)", anchor=justification).grid(sticky="w",
                                                                                                        row=6, column=0,
                                                                                             padx=5, pady=5)
-        self.cell_min_radius_entry = tk.Entry(self.master, textvariable=self.cell_max_radius)
+        self.cell_min_radius_entry = tk.Entry(self.master, textvariable=self.cell_min_radius)
         self.cell_min_radius_entry.grid(row=6, column=1, padx=5, pady=5)
 
-        self.cell_max_radius_entry = tk.Entry(self.master, textvariable=self.cell_min_radius)
+        self.cell_max_radius_entry = tk.Entry(self.master, textvariable=self.cell_max_radius)
         self.cell_max_radius_entry.grid(row=6, column=2, padx=5, pady=5)
 
         # Save overlay checkbox
@@ -245,26 +245,36 @@ class ROISelectionApp:
         self.preview_frame = 0
         self.canny_upper_preview = self.canny_upper.get()
         self.canny_lower_preview = self.canny_lower.get()
-        self.size_limit = self.cell_radius.get()
-        self.size_limit = self.cell_radius.get()
+        self.cell_min_radius_preview = self.cell_min_radius.get()
+        self.cell_max_radius_preview = self.cell_max_radius.get()
+
         # Display images
         cv2.namedWindow('Preview (ESC to confirm)', cv2.WINDOW_NORMAL)
         cv2.resizeWindow('Preview (ESC to confirm)', 600, 600)
-        cv2.createTrackbar('Upper', 'Preview (ESC to confirm)', int(self.canny_upper_preview), 255, self.nothing)
         cv2.createTrackbar('Lower', 'Preview (ESC to confirm)', int(self.canny_lower_preview), 255, self.nothing)
-        cv2.createTrackbar('size_limit', 'Preview (ESC to confirm)', int(self.size_limit), 30, self.nothing)
+        cv2.createTrackbar('Upper', 'Preview (ESC to confirm)', int(self.canny_upper_preview), 255, self.nothing)
+        cv2.createTrackbar('rad_min', 'Preview (ESC to confirm)', int(self.cell_min_radius_preview), 20, self.nothing)
+        cv2.createTrackbar('rad_max', 'Preview (ESC to confirm)', int(self.cell_max_radius_preview), 30, self.nothing)
         cv2.createTrackbar('Frame', 'Preview (ESC to confirm)', int(self.preview_frame), self.total_frames - 1,
                            self.nothing)
 
         while True:
             self.canny_upper_preview = cv2.getTrackbarPos('Upper', 'Preview (ESC to confirm)')
             self.canny_lower_preview = cv2.getTrackbarPos('Lower', 'Preview (ESC to confirm)')
-            self.size_limit = cv2.getTrackbarPos('size_limit', 'Preview (ESC to confirm)')
+            self.cell_min_radius_preview = cv2.getTrackbarPos('rad_min', 'Preview (ESC to confirm)')
+            self.cell_max_radius_preview = cv2.getTrackbarPos('rad_max', 'Preview (ESC to confirm)')
+
             # Lower should not exceed upper
             if self.canny_lower_preview > self.canny_upper_preview:
                 self.canny_lower_preview = self.canny_upper_preview
                 cv2.setTrackbarPos('Upper', 'Preview (ESC to confirm)', self.canny_upper_preview)
                 cv2.setTrackbarPos('Lower', 'Preview (ESC to confirm)', self.canny_lower_preview)
+
+            # Min radius should not exceed max
+            if self.cell_min_radius_preview > self.cell_max_radius_preview:
+                self.cell_min_radius_preview = self.cell_max_radius_preview
+                cv2.setTrackbarPos('rad_min', 'Preview (ESC to confirm)', self.cell_max_radius_preview)
+                cv2.setTrackbarPos('rad_max', 'Preview (ESC to confirm)', self.cell_min_radius_preview)
 
             self.preview_frame = cv2.getTrackbarPos('Frame', 'Preview (ESC to confirm)')
             frame = self.preview_detection()
@@ -272,7 +282,8 @@ class ROISelectionApp:
 
             self.canny_upper.set(self.canny_upper_preview)
             self.canny_lower.set(self.canny_lower_preview)
-            self.cell_radius.set(self.size_limit)
+            self.cell_min_radius.set(self.cell_min_radius_preview)
+            self.cell_max_radius.set(self.cell_max_radius_preview)
             k = cv2.waitKey(30) & 0xFF  # Wait indefinitely for a key press
             if k == 27:  # ESC key
                 break
