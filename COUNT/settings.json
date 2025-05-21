@@ -5,7 +5,8 @@
     "timeout": 5,
     "flow_direction": "",
     "background_subtraction": false,
-    "cell_radius": 5,
+  "cell_min_radius": 6,
+  "cell_max_radius": 3,
     "save_overlay": false,
     "csv_save_path": "results/"
 }

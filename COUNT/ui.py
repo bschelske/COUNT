@@ -4,8 +4,10 @@ import tkinter as tk
 from tkinter import filedialog
 
 import cv2
+import numpy as np
 from pims import ND2Reader_SDK
 
+from COUNT import background_subtraction as bs
 from COUNT import tracking
 
 """
@@ -36,7 +38,8 @@ class ROISelectionApp:
             value=self.settings.get("max_centroid_distance"))  # max distance an object will travel between frames (px)
         self.timeout = tk.IntVar(
             value=self.settings.get("timeout"))  # How long before an object is considered lost (frames)
-        self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
+        self.cell_max_radius = tk.IntVar(value=self.settings.get("cell_max_radius"))
+        self.cell_min_radius = tk.IntVar(value=self.settings.get("cell_min_radius"))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
         self.flow_direction = tk.StringVar(value=self.settings.get("flow_direction"))
         self.background_subtraction = tk.BooleanVar(value=self.settings.get("background_subtraction"))
@@ -115,10 +118,14 @@ class ROISelectionApp:
         self.timeout_entry.grid(row=5, column=1, padx=5, pady=5)
 
         # Expected Cell Radius input field
-        tk.Label(self.master, text="Expected Cell Radius (px):", anchor=justification).grid(sticky="w", row=6, column=0,
+        tk.Label(self.master, text="Cell size exclusion, radii (min, max)", anchor=justification).grid(sticky="w",
+                                                                                                       row=6, column=0,
                                                                                             padx=5, pady=5)
-        self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
-        self.cell_radius_entry.grid(row=6, column=1, padx=5, pady=5)
+        self.cell_min_radius_entry = tk.Entry(self.master, textvariable=self.cell_max_radius)
+        self.cell_min_radius_entry.grid(row=6, column=1, padx=5, pady=5)
+
+        self.cell_max_radius_entry = tk.Entry(self.master, textvariable=self.cell_min_radius)
+        self.cell_max_radius_entry.grid(row=6, column=2, padx=5, pady=5)
 
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
@@ -150,7 +157,8 @@ class ROISelectionApp:
                              "timeout": 5,
                              "flow_direction": "Towards Right (--->)",
                              "background_subtraction": True,
-                             "cell_radius": 6,
+                             "cell_min_radius": 2,
+                             "cell_max_radius": 6,
                              "save_overlay": False,
                              "csv_save_path": "results/"}
 
@@ -161,7 +169,8 @@ class ROISelectionApp:
                     "timeout": self.timeout.get(),
                     "flow_direction": self.flow_direction.get(),
                     "background_subtraction": self.background_subtraction.get(),
-                    "cell_radius": self.cell_radius.get(),
+                    "cell_min_radius": self.cell_min_radius.get(),
+                    "cell_max_radius": self.cell_max_radius.get(),
                     "save_overlay": self.save_overlay.get(),
                     "csv_save_path": self.csv_folder_path.get()
                     }
@@ -236,16 +245,21 @@ class ROISelectionApp:
         self.preview_frame = 0
         self.canny_upper_preview = self.canny_upper.get()
         self.canny_lower_preview = self.canny_lower.get()
+        self.size_limit = self.cell_radius.get()
+        self.size_limit = self.cell_radius.get()
         # Display images
         cv2.namedWindow('Preview (ESC to confirm)', cv2.WINDOW_NORMAL)
+        cv2.resizeWindow('Preview (ESC to confirm)', 600, 600)
         cv2.createTrackbar('Upper', 'Preview (ESC to confirm)', int(self.canny_upper_preview), 255, self.nothing)
         cv2.createTrackbar('Lower', 'Preview (ESC to confirm)', int(self.canny_lower_preview), 255, self.nothing)
+        cv2.createTrackbar('size_limit', 'Preview (ESC to confirm)', int(self.size_limit), 30, self.nothing)
         cv2.createTrackbar('Frame', 'Preview (ESC to confirm)', int(self.preview_frame), self.total_frames - 1,
                            self.nothing)
 
         while True:
             self.canny_upper_preview = cv2.getTrackbarPos('Upper', 'Preview (ESC to confirm)')
             self.canny_lower_preview = cv2.getTrackbarPos('Lower', 'Preview (ESC to confirm)')
+            self.size_limit = cv2.getTrackbarPos('size_limit', 'Preview (ESC to confirm)')
             # Lower should not exceed upper
             if self.canny_lower_preview > self.canny_upper_preview:
                 self.canny_lower_preview = self.canny_upper_preview
@@ -258,6 +272,7 @@ class ROISelectionApp:
 
             self.canny_upper.set(self.canny_upper_preview)
             self.canny_lower.set(self.canny_lower_preview)
+            self.cell_radius.set(self.size_limit)
             k = cv2.waitKey(30) & 0xFF  # Wait indefinitely for a key press
             if k == 27:  # ESC key
                 break
@@ -282,9 +297,14 @@ class ROISelectionApp:
                 contours = tracking.process_image(frame_data, self)
             else:
                 # Background subtraction
-                backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-                foreground_mask = backSub.apply(frame_data)
-                contours = tracking.process_image(foreground_mask, self)
+                # Initialize with first few frames
+                frame_data = nd2_file[self.preview_frame]
+                num_bg_samples = min(20, self.total_frames)  # More samples for better background modeling
+                background_sample = np.array([nd2_file[i] for i in range(num_bg_samples)], dtype=np.uint16)
+                background = bs.create_background_model(background_sample, method='median')
+                # # For tuning and debugging - try different methods
+                contours, mask_adaptive = bs.detect_cells(frame_data, background, self, threshold_method='adaptive')
+
             save_overlay_frame = cv2.drawContours(save_overlay_frame, contours, -1, (0, 0, 255), 2)
             cv2.putText(save_overlay_frame, str(f"Frame {self.preview_frame} Objects: {len(contours)}"), (10, 40),
                         cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
