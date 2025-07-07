@@ -1,9 +1,11 @@
+
 # Count Objects Until No Tomorrow (C.O.U.N.T.)
-🧛‍♂️: _Ah-ah-ah!_ 
+🧛‍♂️: _Ah-ah-ah!_
+
+![Python](https://img.shields.io/badge/Python-3.10-blue.svg)
+![MIT License](https://img.shields.io/badge/license-MIT-green)
 ## Description
-This project is an object tracking system implemented in Python. It provides functionality for detecting and 
-tracking objects in video frames using cv2 canny edge detection. The intended application of this project is to 
-track cells that flow through a CF-DEP device. Cell response to DEP is recorded within results.csv 
+An object tracking system for analyzing cell movement and DEP response in microfluidic devices, useful in cancer diagnostics and single-cell analysis.
 
 **General workflow:**
 1. **Input Files**: Processes Nikon ND2 files directly using the `ND2Reader_SDK` library
