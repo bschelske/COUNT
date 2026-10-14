@@ -94,6 +94,13 @@ Run `python COUNT/bg_plotting.py`:
 1. Choose the folder of `*_results.csv` files (one per trial, with the frequency in the file name, e.g. `A375 20kHz_results.csv`). This writes `final_results/final_results.csv` inside that folder with the pDEP percentage per trial.
 2. Choose a `final_results.csv` (or a folder of them) to plot pDEP % against frequency.
 
+## Synthetic Test Videos
+`tools/make_synthetic_videos.py` makes timelapses of cells flowing left to right into the top and bottom outlets, each with an answer key listing every cell and its outlet:
+```
+python tools/make_synthetic_videos.py synthetic_videos
+```
+It makes three 8-bit AVI videos (12 cells each): `synth_easy_10kHz` (slow, well spaced), `synth_fast_50kHz` (cells crossing the image in 13-15 frames) and `synth_crowded_100kHz` (cells close together, side by side, pausing, and briefly out of focus). COUNT reads ND2 files, so convert each AVI in NIS-Elements (open it, then **File → Save As** `.nd2`), run COUNT on it with the default settings, and compare `<file>_results.csv` with `<file>_answer_key.csv`.
+
 ## Running the Tests
 From the repository folder:
 ```
