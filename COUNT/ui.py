@@ -292,7 +292,8 @@ class ROISelectionApp:
         with ND2Reader_SDK(self.files[0]) as nd2_file:
             if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
                 nd2_file.iter_axes = 'm'
-            # MOG2 Background Method: feed the frames up to frame_index to build the background
+            # MOG2 Background Method: prime the background exactly as the tracker does, then run up to frame_index
+            tracking.prime_background(backSub, nd2_file, len(nd2_file))
             for index in range(frame_index + 1):
                 frame = cv2.normalize(nd2_file[index], None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
                 foreground_mask = backSub.apply(frame)

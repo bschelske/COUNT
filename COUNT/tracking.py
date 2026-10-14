@@ -6,9 +6,11 @@ This is where most of the work is done. The main.py file will run this code usin
 
 General tracking strategy:
     Import ND2 file and perform MOG2 background subtraction
+        (the background model is first primed with the opening frames, then tracking starts at frame 0)
     Use canny edge detection on background subtracted frames to generate contours
     Track contours through time: each frame, every detection is paired with at most one existing track
-    (and every track with at most one detection), nearest pairs first
+    (and every track with at most one detection), nearest pairs first, measured from where each track
+    is predicted to be given its last velocity
 
 Device assumptions:
     Cells flow from left to right
@@ -37,6 +39,7 @@ import numpy as np
 from tqdm import tqdm
 
 DEFAULT_MIN_FRAMES_TRACKED = 3
+BACKGROUND_PRIMING_FRAMES = 30  # frames used to learn the background before tracking starts
 
 
 class DetectedObject:
@@ -60,6 +63,8 @@ class DetectedObject:
         The number of frames in which the object was detected.
     position_history : Dict[int, Tuple[int, int]]
         {frame_number: (x, y)} for every frame the object was detected in.
+    velocity : Tuple[float, float]
+        Centre displacement per frame between the last two detections ((0, 0) until it has been seen twice).
     """
 
     def __init__(self, object_id, position, size, most_recent_frame):
@@ -70,12 +75,22 @@ class DetectedObject:
         self.DEP_outlet = ''
         self.frames_tracked = 1
         self.position_history = {self.most_recent_frame: self.position}
+        self.velocity = (0.0, 0.0)
 
     def center(self) -> typing.Tuple[float, float]:
         return self.position[0] + self.size[0] / 2, self.position[1] + self.size[1] / 2
 
+    def predicted_center(self, frame_number: int) -> typing.Tuple[float, float]:
+        """Where this object should be in `frame_number` if it keeps moving at its last velocity."""
+        x, y = self.center()
+        frames = frame_number - self.most_recent_frame
+        return x + self.velocity[0] * frames, y + self.velocity[1] * frames
+
     def update(self, detection: "DetectedObject", frame_number: int) -> None:
         """Move this track to a new detection in `frame_number`."""
+        (old_x, old_y), (new_x, new_y) = self.center(), detection.center()
+        frames = max(frame_number - self.most_recent_frame, 1)
+        self.velocity = ((new_x - old_x) / frames, (new_y - old_y) / frames)
         self.position = detection.position
         self.size = detection.size
         self.most_recent_frame = frame_number
@@ -100,19 +115,24 @@ def match_detections(tracks: typing.Dict[int, DetectedObject], detections: typin
     Pair detections in this frame with existing tracks and update the matched tracks.
 
     Each track can take at most one detection and each detection can join at most one track. Candidate pairs
-    are accepted closest first. A pair is only allowed if the detection is within `max_distance` of the track
-    and has not moved left by more than `backtrack_tolerance` pixels (cells flow left to right, but a cell
-    that pauses or whose outline jitters should still match).
+    are accepted closest first. Distance is measured from where the track is predicted to be in this frame
+    (its last position moved on by its last velocity), so a track that lost its cell for a few frames looks
+    for it further along the channel instead of grabbing a later cell passing its old position.
+    A pair is only allowed if the detection is within `max_distance` of that prediction and has not moved
+    left of the track's last position by more than `backtrack_tolerance` pixels (cells flow left to right,
+    but a cell that pauses or whose outline jitters should still match).
 
     Returns the detections that did not match any track (these are new cells, or noise).
     """
     candidates = []
     for track_id, track in tracks.items():
         track_x, _ = track.center()
+        predicted_x, predicted_y = track.predicted_center(frame_number)
         for index, detection in enumerate(detections):
-            if detection.center()[0] < track_x - backtrack_tolerance:
+            x, y = detection.center()
+            if x < track_x - backtrack_tolerance:
                 continue
-            distance = calculate_distance(detection, track)
+            distance = ((x - predicted_x) ** 2 + (y - predicted_y) ** 2) ** 0.5
             if distance <= max_distance:
                 candidates.append((distance, track_id, index))
 
@@ -180,6 +200,20 @@ def _setting(ui_app, name, default=None):
     """Read a tkinter variable from the UI, or fall back to a default if the UI doesn't have it."""
     variable = getattr(ui_app, name, None)
     return variable.get() if variable is not None else default
+
+
+def prime_background(backSub, frames, n_frames, n_samples=BACKGROUND_PRIMING_FRAMES):
+    """
+    Teach the background subtractor what the channel looks like before tracking starts.
+
+    MOG2 needs a few dozen frames before its foreground mask is reliable; until then it marks noise as
+    foreground (which becomes short noise tracks) and misses real cells. Running it over the first
+    `n_samples` frames once, before going back to frame 0 to track, means detection works from the start.
+    (Sampling frames spread across the whole video was tested and gave far more false detections.)
+    `frames` is anything indexable by frame number (e.g. an ND2 reader).
+    """
+    for index in range(min(n_samples, n_frames)):
+        backSub.apply(cv.normalize(frames[index], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
 
 
 def find_cell_contours(foreground_mask, canny_lower, canny_upper, cell_radius):
@@ -280,6 +314,8 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObj
     with ND2Reader_SDK(nd2_file_path) as nd2_file:
         if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
             nd2_file.iter_axes = 'm'
+
+        prime_background(backSub, nd2_file, len(nd2_file))
 
         for frame_number in tqdm(range(len(nd2_file)), desc=file_stem):
             frame_data = cv.normalize(nd2_file[frame_number], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
