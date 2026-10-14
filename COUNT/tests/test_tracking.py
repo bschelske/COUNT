@@ -1,348 +1,268 @@
-import tkinter as tk
+"""
+Tests for COUNT/tracking.py.
+
+These run without the Nikon SDK, a display, or any .nd2 files: they use synthetic detections and synthetic
+videos (bright discs moving left to right on a grey background).
+
+Run from the repository root:
+    python -m unittest discover COUNT/tests
+"""
+import csv
+import os
+import sys
+import tempfile
+import types
 import unittest
-import time
 
-from COUNT.tracking import *
-from COUNT.ui import ROISelectionApp
+import cv2 as cv
+import numpy as np
 
-
-# TODO: Expand upon test cases for each function
-
-
-class TestTracking(unittest.TestCase):
-    def setUp(self):
-        self.obj1 = DetectedObject(object_id=1, position=(1, 2), size=(2, 2), most_recent_frame=1)
-        self.obj2 = DetectedObject(object_id=2, position=(3, 6), size=(2, 2), most_recent_frame=1)
-
-        self.my_ui = ROISelectionApp(tk.Tk())
-        self.my_ui.file_path = r'C:\Users\bensc\PycharmProjects\COUNT_synth\100_avi.nd2'
-        self.my_ui.cell_radius = tk.IntVar(value=3)
-        self.my_ui.roi_height = tk.IntVar(value=512)
-        self.my_ui.roi_width = tk.IntVar(value=512)
-        self.my_ui.roi_x = tk.IntVar(value=0)
-        # self.my_ui.save_overlay = tk.BooleanVar(value=True)
-
-        self.image_h = 512
-        self.nd2_file = ND2Reader_SDK(self.my_ui.file_path)
-        # self.backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        self.backSub = False
+from COUNT import tracking
+from COUNT.tracking import DetectedObject, Tracker, calculate_distance, match_detections
 
 
-    def test_detect_objects_performance(self):
-        """Measure the time taken to process 100 frames."""
-        start_time = time.time()
-        for frame in range(600):
-            detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub=self.backSub, ui_app=self.my_ui)
-        duration = time.time() - start_time
-        print(f"detect_objects processed 600 frames in {duration:.2f} seconds")
-        self.assertLess(duration, 1, "Detection took too long!")  # Adjust the threshold as needed
+class Var:
+    """Stand-in for a tkinter variable."""
 
-    def test_match_tracked_objects_performance(self):
-        """Ensure matching objects remains efficient."""
-        test_dict = {i: DetectedObject(object_id=i, position=(i * 5, 100), size=(5, 5), most_recent_frame=1) for i in
-                     range(100)}
-        obj = DetectedObject(object_id=None, position=(500, 100), size=(5, 5), most_recent_frame=2)
-        frame_number = 2
+    def __init__(self, value):
+        self.value = value
 
-        start_time = time.time()
-        match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj, frame_number=frame_number,
-                              ui_app=self.my_ui)
-        duration = time.time() - start_time
-        print(f"match_tracked_objects executed in {duration:.5f} seconds")
-        self.assertLess(duration, 0.1, "Object matching took too long!")  # Adjust as needed
+    def get(self):
+        return self.value
 
-    def test_DetectedObject_update(self):
-        pass
 
-    def test_DetectedObject_calculate_avg_displacement(self):
-        pass
+class FakeUI:
+    """Stand-in for the tkinter UI with the settings the tracker reads."""
 
-    def test_DetectedObject_enters_from_left(self):
-        pass
+    def __init__(self, overlay_path="", save_overlay=False, **overrides):
+        settings = dict(canny_upper=255, canny_lower=85, max_centroid_distance=70, timeout=20, cell_radius=6,
+                        min_frames_tracked=3)
+        settings.update(overrides)
+        for name, value in settings.items():
+            setattr(self, name, Var(value))
+        self.save_overlay = Var(save_overlay)
+        self.overlay_path = overlay_path
 
-    def test_DetectedObject_exits_right(self):
-        y = 10
-        x = self.my_ui.roi_x.get() + self.my_ui.roi_width.get()
-        self.obj1.position = (x, y)
-        result = self.obj1.exits_right(self.my_ui.roi_x.get(), self.my_ui.roi_width.get())
-        self.assertEqual(result, True)
 
-        x = self.my_ui.roi_x.get() + self.my_ui.roi_width.get() - 1
-        self.obj1.position = (x, y)
-        result = self.obj1.exits_right(self.my_ui.roi_x.get(), self.my_ui.roi_width.get())
-        self.assertEqual(result, False)
+def obj(x, y, frame, size=(10, 10)):
+    """A detection whose bounding box starts at (x, y)."""
+    return DetectedObject(object_id=None, position=(x, y), size=size, most_recent_frame=frame)
 
-        x = self.my_ui.roi_x.get() + self.my_ui.roi_width.get() + 1
-        self.obj1.position = (x, y)
-        result = self.obj1.exits_right(self.my_ui.roi_x.get(), self.my_ui.roi_width.get())
-        self.assertEqual(result, True)
 
-    def test_DetectedObject_outlet_assignment(self):
-        pass
+def run_tracker(frames, image_h=200, **kwargs):
+    """frames: list of lists of (x, y) top-left positions, one list per frame."""
+    settings = dict(max_centroid_distance=70, timeout=20, min_frames_tracked=3, backtrack_tolerance=6)
+    settings.update(kwargs)
+    tracker = Tracker(image_h=image_h, **settings)
+    for frame_number, positions in enumerate(frames):
+        tracker.update([obj(x, y, frame_number) for x, y in positions], frame_number)
+    return tracker, tracker.finish()
 
-    def test_DetectedObject_center(self):
-        pass
+
+class TestDetectedObject(unittest.TestCase):
+    def test_center(self):
+        self.assertEqual(obj(10, 20, 0, size=(10, 6)).center(), (15, 23))
 
     def test_calculate_distance(self):
-        result = calculate_distance(self.obj1, self.obj2)
-        self.assertEqual(result, 4)
+        self.assertEqual(calculate_distance(obj(0, 0, 0), obj(3, 4, 0)), 5)
 
-        result = calculate_distance(self.obj2, self.obj1)
-        self.assertEqual(result, 4)
+    def test_outlet_uses_centre_not_top_edge(self):
+        # Top edge (y=95) is above the midline (100) but the centre (y=105) is below it: bottom outlet.
+        cell = obj(0, 95, 0, size=(10, 20))
+        cell.outlet_assignment(image_h=200)
+        self.assertFalse(cell.DEP_outlet)
 
-    def test_detect_objects(self):
-        # If this fails, it could be good...
-        results = []
-        actuals = [1, 2, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 4, 4, 4, 4, 4, 4, 4, 4, 4, 1, 1, 1, 2, 2, 2, 3]
-        for frame in range(30):
-            result, _ = detect_objects(frame_data=self.nd2_file[frame], frame_index=frame, backSub_mask=self.backSub,
-                                       ui_app=self.my_ui)
-            results.append(len(result))
-        self.assertEqual(results, actuals)
+        cell = obj(0, 80, 0, size=(10, 10))
+        cell.outlet_assignment(image_h=200)
+        self.assertTrue(cell.DEP_outlet)
 
-    def test_add_new_objects(self):
-        # No previous objects
-        test_dict = {}
-        next_id = 1
-        frame_number = 5  # arbitrary
-        result_dict, result_id, = add_new_objects(new_object=self.obj1, objects_in_previous_frame_dict=test_dict,
-                                                  next_new_id=next_id, frame_number=frame_number)
+    def test_update_records_history(self):
+        cell = obj(0, 0, 0)
+        cell.update(obj(20, 0, 1), 1)
+        self.assertEqual(cell.frames_tracked, 2)
+        self.assertEqual(cell.position_history, {0: (0, 0), 1: (20, 0)})
 
-        intended_dict = {1: self.obj1}
-        intended_id = 2
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_id, intended_id)
 
-        # Previous objects
-        test_dict = {1: self.obj1}
-        next_id = 2
-        frame_number = 5  # arbitrary
-        result_dict, result_id, = add_new_objects(new_object=self.obj2, objects_in_previous_frame_dict=test_dict,
-                                                  next_new_id=next_id, frame_number=frame_number)
+class TestMatching(unittest.TestCase):
+    def test_each_track_takes_at_most_one_detection(self):
+        tracks = {1: obj(0, 0, 0)}
+        detections = [obj(20, 0, 1), obj(25, 5, 1)]
+        unmatched = match_detections(tracks, detections, 1, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(len(unmatched), 1)
+        self.assertEqual(tracks[1].position, (20, 0))  # the closer detection wins
 
-        intended_dict = {1: self.obj1, 2: self.obj2}
-        intended_id = 3
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_id, intended_id)
+    def test_closest_pairs_win(self):
+        tracks = {1: obj(0, 0, 0), 2: obj(0, 50, 0)}
+        detections = [obj(20, 52, 1), obj(20, 2, 1)]
+        unmatched = match_detections(tracks, detections, 1, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(unmatched, [])
+        self.assertEqual(tracks[1].position, (20, 2))
+        self.assertEqual(tracks[2].position, (20, 52))
 
-    def test_add_new_objects_edge_case(self):
-        # Weird edge case?:
-        # FRAME 255
-        self.obj41a = DetectedObject(object_id=41, position=(451, 442), size=(9, 9), most_recent_frame=255)
-        self.obj42a = DetectedObject(object_id=42, position=(444, 240), size=(9, 9), most_recent_frame=255)
-        self.obj43a = DetectedObject(object_id=43, position=(266, 299), size=(9, 9), most_recent_frame=255)
-        self.obj44a = DetectedObject(object_id=44, position=(0, 130), size=(2, 3), most_recent_frame=255)
+    def test_moving_left_beyond_tolerance_does_not_match(self):
+        tracks = {1: obj(50, 0, 0)}
+        unmatched = match_detections(tracks, [obj(40, 0, 1)], 1, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(len(unmatched), 1)
 
-        # FRAME 256
-        self.obj41 = DetectedObject(object_id=41, position=(484, 442), size=(9, 9), most_recent_frame=256)
-        self.obj42 = DetectedObject(object_id=42, position=(477, 240), size=(9, 9), most_recent_frame=256)
-        self.obj43 = DetectedObject(object_id=43, position=(300, 299), size=(9, 9), most_recent_frame=256)
-        self.obj44 = DetectedObject(object_id=44, position=(26, 127), size=(9, 9), most_recent_frame=256)
+    def test_too_far_does_not_match(self):
+        tracks = {1: obj(0, 0, 0)}
+        unmatched = match_detections(tracks, [obj(80, 0, 1)], 1, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(len(unmatched), 1)
 
-        self.obj45 = DetectedObject(object_id=45, position=(0, 188), size=(2, 3), most_recent_frame=256)
-        self.objx = DetectedObject(object_id=None, position=(15, 149), size=(9, 9), most_recent_frame=256)
 
-        dict_255 = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}  # FRAME 255
-        dict_256 = {41: self.obj41, 42: self.obj42, 43: self.obj43, 44: self.obj44, 45: self.obj45,
-                    46: self.objx}  # FRAME 256
-        frame_number = 256
+class TestTracker(unittest.TestCase):
+    def test_two_cells_in_same_frame_stay_separate(self):
+        # Previously the second cell was merged into the first cell's brand-new track.
+        frames = [[(100 + 15 * i, 50), (120 + 15 * i, 50)] for i in range(5)]
+        _, counted = run_tracker(frames)
+        self.assertEqual(len(counted), 2)
 
-        next_id = 45
-        frame_number = 256
+    def test_paused_cell_is_one_track(self):
+        # Previously a cell that did not move for a frame started a duplicate track.
+        frames = [[(100, 50)], [(100, 50)], [(101, 50)], [(130, 50)], [(160, 50)]]
+        _, counted = run_tracker(frames)
+        self.assertEqual(len(counted), 1)
+        self.assertEqual(next(iter(counted.values())).frames_tracked, 5)
 
-        # Attempt to add missing object alone
-        result_dict, result_id, = add_new_objects(new_object=self.objx, objects_in_previous_frame_dict=dict_255,
-                                                  next_new_id=next_id, frame_number=frame_number)
+    def test_fast_cell_counted_even_if_seen_fewer_frames_than_timeout(self):
+        # Previously a cell had to be tracked for more than `timeout` frames to be counted.
+        frames = [[(10 + 60 * i, 50)] for i in range(4)]
+        _, counted = run_tracker(frames, timeout=20, min_frames_tracked=3)
+        self.assertEqual(len(counted), 1)
 
-        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.objx}
-        intended_id = 46
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_id, intended_id)
+    def test_short_tracks_are_noise(self):
+        frames = [[(10, 50)], [], [], [(150, 150)], [(160, 150)]]
+        _, counted = run_tracker(frames, min_frames_tracked=3)
+        self.assertEqual(counted, {})
 
-        # Attempt to add obj45 alone
-        result_dict, result_id, = add_new_objects(new_object=self.obj45, objects_in_previous_frame_dict=dict_255,
-                                                  next_new_id=next_id, frame_number=frame_number)
+    def test_track_survives_short_gap(self):
+        frames = [[(10, 50)], [(40, 50)], [], [], [(70, 50)], [(100, 50)]]
+        _, counted = run_tracker(frames, timeout=5)
+        self.assertEqual(len(counted), 1)
 
-        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.obj45}
-        intended_id = 46
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_id, intended_id)
+    def test_track_closes_after_timeout(self):
+        tracker = Tracker(image_h=200, max_centroid_distance=70, timeout=2, min_frames_tracked=3)
+        for frame in range(3):
+            tracker.update([obj(10 + 20 * frame, 50, frame)], frame)
+        self.assertEqual(len(tracker.active), 1)
+        for frame in range(3, 6):
+            tracker.update([], frame)
+        self.assertEqual(len(tracker.active), 0)
+        self.assertEqual(len(tracker.counted), 1)
 
-        # Iterate on dict, adding 45 then objx
-        result_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}
+    def test_outlets_assigned_from_last_position(self):
+        top = [(10 + 30 * i, 40) for i in range(5)]  # stays in the top half
+        bottom = [(10 + 30 * i, 140) for i in range(5)]  # stays in the bottom half
+        _, counted = run_tracker([[t, b] for t, b in zip(top, bottom)], image_h=200)
+        self.assertEqual(sorted(o.DEP_outlet for o in counted.values()), [False, True])
 
-        result_dict, result_id, = add_new_objects(new_object=self.obj45, objects_in_previous_frame_dict=result_dict,
-                                                  next_new_id=next_id, frame_number=frame_number)
+    def test_counted_so_far(self):
+        tracker = Tracker(image_h=200, max_centroid_distance=70, timeout=20, min_frames_tracked=3)
+        for frame in range(2):
+            tracker.update([obj(10 + 20 * frame, 50, frame)], frame)
+        self.assertEqual(tracker.counted_so_far(), 0)
+        tracker.update([obj(50, 50, 2)], 2)
+        self.assertEqual(tracker.counted_so_far(), 1)
 
-        result_dict, result_id, = add_new_objects(new_object=self.objx, objects_in_previous_frame_dict=result_dict,
-                                                  next_new_id=result_id, frame_number=frame_number)
 
-        intended_dict = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a, 45: self.obj45,
-                         46: self.objx}
-        intended_id = 47
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_id, intended_id)
+def synthetic_video(n_frames=30, size=(200, 300), cells=((0, 50), (-60, 150), (-120, 60)), speed=15, radius=6):
+    """Bright discs moving right on a grey background. cells: (starting x, y) for each cell's centre."""
+    frames = []
+    for frame in range(n_frames):
+        image = np.full(size, 100, dtype=np.uint16)
+        for start_x, y in cells:
+            x = start_x + speed * frame
+            if 0 <= x < size[1]:
+                cv.circle(image, (int(x), int(y)), radius, 400, -1)
+        frames.append(image)
+    return frames
 
-    def test_match_logic(self):
-        # Second object is to the right
-        self.assertGreater(self.obj2.position[0], self.obj1.position[0])
 
-        # Distance between objects is less than centroid threshold
-        distance = calculate_distance(self.obj2, self.obj1)
-        self.assertLessEqual(distance, self.my_ui.max_centroid_distance.get())
+class TestDetection(unittest.TestCase):
+    def test_no_motion_means_no_detections(self):
+        frame = np.full((100, 100), 128, dtype=np.uint8)
+        objects, contours = tracking.detect_objects(frame, 0, np.zeros_like(frame), FakeUI())
+        self.assertEqual((objects, contours), ([], []))
 
-        # Check both
-        self.assertTrue(
-            (self.obj2.position[0] > self.obj1.position[0]) and (distance < self.my_ui.max_centroid_distance.get()))
+    def test_detects_separate_cells(self):
+        mask = np.zeros((200, 300), dtype=np.uint8)
+        cv.circle(mask, (50, 50), 6, 255, -1)
+        cv.circle(mask, (200, 150), 6, 255, -1)
+        objects, contours = tracking.detect_objects(mask, 0, mask, FakeUI())
+        self.assertEqual(len(objects), 2)
+        self.assertEqual(len(contours), 2)
 
-    def test_match_tracked_objects(self):
-        # One Object
-        # Match found... obj2 should match to obj1
-        test_dict = {1: self.obj1}
-        obj = self.obj2
-        frame_number = 5
-        result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                                         frame_number=frame_number, ui_app=self.my_ui)
-        self.assertFalse(result_bool)
 
-        # No match, previous object is to the right
-        test_dict = {1: self.obj2}
-        obj = self.obj1
-        frame_number = 5
-        result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                                         frame_number=frame_number, ui_app=self.my_ui)
-        self.assertTrue(result_bool)
+class FakeND2:
+    """Stand-in for pims.ND2Reader_SDK backed by a list of frames."""
 
-        # Object is too far away
-        test_dict = {1: self.obj1}
-        self.obj2.position = (self.my_ui.max_centroid_distance.get() + 1, 6)
-        obj = self.obj2
-        frame_number = 5
-        result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                                         frame_number=frame_number, ui_app=self.my_ui)
-        self.assertTrue(result_bool)
+    frames = []
 
-        # Object is too far away, and to the left
-        test_dict = {1: self.obj1}
-        self.obj1.position = (self.obj2.position[0] - self.my_ui.max_centroid_distance.get() - 1, 6)
-        obj = self.obj2
-        frame_number = 5
-        result_bool, result_dict = match_tracked_objects(surviving_objects_dict=test_dict, object_in_frame=obj,
-                                                         frame_number=frame_number, ui_app=self.my_ui)
-        self.assertTrue(result_bool)
+    def __init__(self, path):
+        self.sizes = {'t': len(self.frames)}
 
-    def test_match_tracked_objects_edge_case(self):
-        # Weird Edge Case (Literally)
-        # FRAME 255
-        self.obj41a = DetectedObject(object_id=41, position=(451, 442), size=(9, 9), most_recent_frame=255)
-        self.obj42a = DetectedObject(object_id=42, position=(444, 240), size=(9, 9), most_recent_frame=255)
-        self.obj43a = DetectedObject(object_id=43, position=(266, 299), size=(9, 9), most_recent_frame=255)
-        self.obj44a = DetectedObject(object_id=44, position=(0, 130), size=(2, 3), most_recent_frame=255)
+    def __enter__(self):
+        return self
 
-        # FRAME 256
-        self.obj41 = DetectedObject(object_id=41, position=(484, 442), size=(9, 9), most_recent_frame=256)
-        self.obj42 = DetectedObject(object_id=42, position=(477, 240), size=(9, 9), most_recent_frame=256)
-        self.obj43 = DetectedObject(object_id=43, position=(300, 299), size=(9, 9), most_recent_frame=256)
-        self.obj44 = DetectedObject(object_id=44, position=(26, 127), size=(9, 9), most_recent_frame=256)
-        self.obj45 = DetectedObject(object_id=45, position=(0, 188), size=(2, 3), most_recent_frame=256)
-        self.objx = DetectedObject(object_id=100, position=(15, 149), size=(9, 9), most_recent_frame=256)
+    def __exit__(self, *args):
+        return False
 
-        dict_255 = {41: self.obj41a, 42: self.obj42a, 43: self.obj43a, 44: self.obj44a}  # FRAME 255
-        dict_256 = {41: self.obj41, 42: self.obj42, 43: self.obj43, 44: self.obj44, 45: self.obj45,
-                    100: self.objx}  # FRAME 256
-        frame_number = 256
+    def __len__(self):
+        return len(self.frames)
 
-        for obj_id, obj in dict_256.items():
-            result_bool, result_dict = match_tracked_objects(surviving_objects_dict=dict_255, object_in_frame=obj,
-                                                             frame_number=frame_number, ui_app=self.my_ui)
-            if obj_id == 45 or obj_id == 100:
-                self.assertTrue(result_bool, (obj_id, result_bool))
-            else:
-                self.assertFalse(result_bool, (obj_id, result_bool))
+    def __getitem__(self, index):
+        return self.frames[index]
 
-    def test_expire_objects_logic(self):
-        # Expired object
-        frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get() + 1
-        self.assertTrue((frame_number - self.obj1.most_recent_frame) > self.my_ui.timeout.get())
 
-        # Not expired object
-        frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get()
-        self.assertFalse((frame_number - self.obj1.most_recent_frame) > self.my_ui.timeout.get())
+class TestEndToEnd(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        FakeND2.frames = synthetic_video()
+        self._saved_pims = sys.modules.get("pims")
+        sys.modules["pims"] = types.SimpleNamespace(ND2Reader_SDK=FakeND2)
 
-    def test_expire_objects(self):
-        # Time for obj1 to expire
-        self.obj1.frames_tracked = 2
-        frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get() + 1
-        test_dict = {self.obj1.object_id: self.obj1}
-        test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
-                                                  expired_objects_dict=test_expire_dict,
-                                                  frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
+    def tearDown(self):
+        if self._saved_pims is None:
+            sys.modules.pop("pims", None)
+        else:
+            sys.modules["pims"] = self._saved_pims
+        self.tmp.cleanup()
 
-        intended_dict = {}
-        intended_expire_dict = {self.obj1.object_id: self.obj1}
+    def test_counts_and_outlets(self):
+        counted = tracking.nd2_mog_contours("synthetic.nd2", FakeUI())
+        self.assertEqual(len(counted), 3)
+        self.assertEqual(sum(o.DEP_outlet is True for o in counted.values()), 2)
+        self.assertEqual(sum(o.DEP_outlet is False for o in counted.values()), 1)
 
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_list, intended_expire_dict)
+    def test_overlays_are_saved_with_annotations(self):
+        overlay_path = os.path.join(self.tmp.name, "overlay")
+        tracking.nd2_mog_contours(os.path.join("data", "trial_10kHz.nd2"),
+                                  FakeUI(overlay_path=overlay_path, save_overlay=True))
+        files = sorted(os.listdir(overlay_path))
+        self.assertEqual(len(files), len(FakeND2.frames))
+        self.assertEqual(files[0], "trial_10kHz_00000.png")
 
-        # Not time for obj 1 to expire
-        frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get()
-        test_dict = {1: self.obj1}
-        test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
-                                                  expired_objects_dict=test_expire_dict,
-                                                  frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
+        # Every saved frame is the colour image (not the black-and-white mask) with the red header text on it
+        for name in (files[0], files[-1]):
+            image = cv.imread(os.path.join(overlay_path, name))
+            red = (image[:, :, 2] > 200) & (image[:, :, 0] < 50) & (image[:, :, 1] < 50)
+            self.assertTrue(red[:40].any(), name)
 
-        intended_dict = {1: self.obj1}
-        intended_expire_dict = {}
+    def test_csv_exports(self):
+        counted = tracking.nd2_mog_contours("synthetic.nd2", FakeUI())
+        results = os.path.join(self.tmp.name, "results.csv")
+        trajectories = os.path.join(self.tmp.name, "trajectories.csv")
+        tracking.export_to_csv(counted, results)
+        tracking.export_trajectories_to_csv(counted.values(), trajectories)
 
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_list, intended_expire_dict)
+        with open(results, newline='') as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), 3)
 
-        # Expire object that was never tracked
-        self.obj1.frames_tracked = 0
-        frame_number = self.obj1.most_recent_frame + self.my_ui.timeout.get() + 1
-        test_dict = {1: self.obj1}
-        test_expire_dict = {}
-        result_dict, result_list = expire_objects(surviving_objects_dict=test_dict,
-                                                  expired_objects_dict=test_expire_dict,
-                                                  frame_number=frame_number, image_h=self.image_h, ui_app=self.my_ui)
-
-        intended_dict = {}
-        intended_expire_dict = {}
-
-        self.assertEqual(result_dict, intended_dict)
-        self.assertEqual(result_list, intended_expire_dict)
-
-    def test_nd2_mog_contours(self):
-        self.mog_results_dict, results_history_list = nd2_mog_contours(self.my_ui.file_path, self.my_ui)
-        # print(results_dict)
-        self.assertEqual(len(self.mog_results_dict), 100)
-
-    def test_coord_in_roi(self):
-        # self.my_ui ROI: 0,0 512, 512
-        coord = (0, 0)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), True)
-
-        coord = (10, 0)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), True)
-
-        coord = (0, 10)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), True)
-
-        coord = (-10, 0)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), False)
-
-        coord = (0, -10)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), False)
-
-        coord = (-10, -10)
-        self.assertEqual(coord_in_roi(coord, self.my_ui), False)
-
-    def test_export_to_csv(self):
-        csv_filename = 'test.csv'
-        # export_to_csv(self.mog_results_dict, csv_filename)
-        pass
+        with open(trajectories, newline='') as f:
+            rows = list(csv.DictReader(f))
+        self.assertEqual(len(rows), sum(o.frames_tracked for o in counted.values()))
+        self.assertEqual({int(r['object_id']) for r in rows}, set(counted))
 
 
 if __name__ == '__main__':
