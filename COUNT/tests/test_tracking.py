@@ -104,6 +104,25 @@ class TestMatching(unittest.TestCase):
         unmatched = match_detections(tracks, [obj(40, 0, 1)], 1, max_distance=70, backtrack_tolerance=6)
         self.assertEqual(len(unmatched), 1)
 
+    def test_lost_track_does_not_steal_a_later_cell(self):
+        # Track 1 was moving right at 30 px/frame, then was not detected for 5 frames. A different cell now
+        # passes close to where track 1 was last seen. Track 1 should be predicted ~150 px further on, so it
+        # must not take that detection.
+        lost = obj(100, 50, 0)
+        lost.update(obj(130, 50, 1), 1)
+        tracks = {1: lost}
+        unmatched = match_detections(tracks, [obj(140, 52, 6)], 6, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(len(unmatched), 1)
+        self.assertEqual(tracks[1].most_recent_frame, 1)
+
+    def test_lost_track_is_found_further_along(self):
+        lost = obj(100, 50, 0)
+        lost.update(obj(130, 50, 1), 1)
+        tracks = {1: lost}
+        unmatched = match_detections(tracks, [obj(220, 50, 4)], 4, max_distance=70, backtrack_tolerance=6)
+        self.assertEqual(unmatched, [])
+        self.assertEqual(tracks[1].most_recent_frame, 4)
+
     def test_too_far_does_not_match(self):
         tracks = {1: obj(0, 0, 0)}
         unmatched = match_detections(tracks, [obj(80, 0, 1)], 1, max_distance=70, backtrack_tolerance=6)
@@ -183,6 +202,18 @@ class TestDetection(unittest.TestCase):
         frame = np.full((100, 100), 128, dtype=np.uint8)
         objects, contours = tracking.detect_objects(frame, 0, np.zeros_like(frame), FakeUI())
         self.assertEqual((objects, contours), ([], []))
+
+    def test_primed_background_detects_from_the_start(self):
+        # A cell already in view at frame 0 is part of the background the model first learns, so it is
+        # picked up once it has moved off its starting spot (frame 1 at this speed), not after ~20 frames.
+        frames = synthetic_video(n_frames=40, cells=((40, 60),), speed=10)
+        backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+        tracking.prime_background(backSub, frames, len(frames))
+        backSub.apply(cv.normalize(frames[0], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
+        for index in (1, 2, 3):
+            mask = backSub.apply(cv.normalize(frames[index], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
+            objects, _ = tracking.detect_objects(frames[index], index, mask, FakeUI())
+            self.assertEqual(len(objects), 1, f"frame {index}")
 
     def test_detects_separate_cells(self):
         mask = np.zeros((200, 300), dtype=np.uint8)
