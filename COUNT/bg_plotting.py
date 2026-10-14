@@ -1,13 +1,15 @@
 # Plot formatting based off code by BG
 
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
 import pandas as pd
 import os
 import re
 from matplotlib import pyplot as plt
 import numpy as np
 from scipy.optimize import curve_fit
+
+ICON_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "count.ico")
 
 
 class DataSelectionApp:
@@ -54,34 +56,53 @@ class DataSelectionApp:
         self.quit_button.grid(row=8, column=3, padx=1, pady=10)
 
     def choose_final_results(self):
-        self.file_path = filedialog.askopenfilename()
+        path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+        if not path:  # dialog cancelled
+            return
+        self.file_path = path
+        self.folder_path.set("")
         print("Selection:", self.file_path)
-        self.confirm_selections()
+        self.input_handling()
         self.make_plot()
 
     def choose_trials_folder(self):
-        self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
-        print("Selection:", self.folder_path.get())
-        self.confirm_selections()
+        if not self.select_folder():
+            return
+        self.files = [f for f in self.files if is_trial_results_file(f)]
+        if not self.files:
+            messagebox.showerror("No results", "No *_results.csv files from COUNT were found in that folder.")
+            return
         self.consolidate_trials()
 
     def plot_multiple(self):
-        self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
-        print("Selection:", self.folder_path.get())
-        self.confirm_selections()
+        if not self.select_folder():
+            return
+        if not self.files:
+            messagebox.showerror("No results", "No .csv files were found in that folder.")
+            return
         self.make_plot()
+
+    def select_folder(self):
+        """Ask for a folder and list the .csv files in it. Returns False if the dialog was cancelled."""
+        path = filedialog.askdirectory()
+        if not path:
+            return False
+        self.folder_path.set(path)
+        self.file_path = ""
+        print("Selection:", self.folder_path.get())
+        self.input_handling()
+        return True
 
     def input_handling(self):
         # Input handling
-        if self.folder_path.get():
-            self.files = [os.path.join(self.folder_path.get(), f) for f in os.listdir(self.folder_path.get()) if f.endswith('.csv')]
         if self.file_path:
             self.files = [self.file_path]
             print(f"Files:{self.file_path}")
-
-    def confirm_selections(self):
-        self.error_handling()
-        self.input_handling()
+        elif self.folder_path.get():
+            self.files = [os.path.join(self.folder_path.get(), f) for f in sorted(os.listdir(self.folder_path.get()))
+                          if f.lower().endswith('.csv')]
+        else:
+            self.files = []
 
     def consolidate_trials(self):
         """Converts individual trails into a results file.
@@ -101,19 +122,21 @@ class DataSelectionApp:
         The frequency extraction will fail if get_frequency() fails.
         """
         results = []
-        os.makedirs("results/final_results/", exist_ok=True)
+        output_folder = os.path.join(self.folder_path.get(), "final_results")
+        os.makedirs(output_folder, exist_ok=True)
         for file in self.files:
             df = pd.read_csv(file)
             filtered_df = df[df['frames_tracked'] != 1]
             count_DEP_True = (filtered_df['DEP_response'].astype(str).str.strip().str.upper() == 'TRUE').sum()
             count_DEP_False = (filtered_df['DEP_response'].astype(str).str.strip().str.upper() == 'FALSE').sum()
+            total = count_DEP_True + count_DEP_False
             result = {
                 'filename': file,
-                'frequency': get_frequency(file),
+                'frequency': get_frequency(os.path.basename(file)),
                 'DEP_True': count_DEP_True,
                 'DEP_False': count_DEP_False,
-                'number of objects': count_DEP_True+count_DEP_False,
-                'Percent True': (count_DEP_True / (count_DEP_True + count_DEP_False)),
+                'number of objects': total,
+                'Percent True': count_DEP_True / total if total else np.nan,  # no cells -> no percentage
             }
             results.append(result)
         results_df = pd.DataFrame(results)
@@ -122,16 +145,19 @@ class DataSelectionApp:
 
         results_df['possibly_miscounted'] = ((results_df['number of objects'] > upper_threshold) |
                                              (results_df['number of objects'] < lower_threshold))
-        results_df.to_csv(f"results/final_results/final_results.csv")
+        output_file = os.path.join(output_folder, "final_results.csv")
+        results_df.to_csv(output_file)
         if results_df['possibly_miscounted'].any():
-            tk.messagebox.showinfo("Whoops", "There was a miscount somewhere. Check the possibly_miscounted column.")
-        print("final_results.csv saved in COUNT/results folder. rename your file, so it isn't overwritten :)")
+            messagebox.showinfo("Whoops", "There was a miscount somewhere. Check the possibly_miscounted column.")
+        if results_df['frequency'].isna().any():
+            messagebox.showinfo("Missing frequency", "Some filenames have no frequency followed by kHz. "
+                                                     "Their frequency column is empty and they won't be plotted.")
+        print(f"{output_file} saved. rename your file, so it isn't overwritten :)")
 
     def make_plot(self):
         """Plot pDEP rate (%) vs frequency from final results csv.
 
-        The plotting styles are determined by this function. This function will break if you plot more than 3 files,
-        to fix this, add more colors in the colors list. color codes can be found on matplotlib website
+        The plotting styles are determined by this function. Colours repeat after len(colors) files.
 
         When plotting multiple files, the legend will use filenames as labels.
         """
@@ -139,17 +165,27 @@ class DataSelectionApp:
         for index, file in enumerate(self.files):
             label = os.path.basename(file)[:-4]  # Get filename excluding .csv
             print(label)
-            colors = ['r', 'b', 'k']  # add more colors if necessary
+            colors = ['r', 'b', 'k', 'g', 'm', 'c', 'y']  # add more colors if necessary
+            color = colors[index % len(colors)]
 
             df = pd.read_csv(file)
+            if 'frequency' not in df or 'Percent True' not in df:
+                print(f"Skipping {file}: not a final_results.csv file")
+                continue
+            df['frequency'] = pd.to_numeric(df['frequency'], errors='coerce')
+            df = df.dropna(subset=['frequency', 'Percent True']).sort_values('frequency')
             x = df['frequency']
             y = df['Percent True'] * 100
 
             # Fit the Gaussian function to the data
-            popt, pcov = curve_fit(gaussian, x, y, p0=[1, np.mean(x), np.std(x)])
-            plt.plot(x, gaussian(x, *popt), colors[index]+'-')  # label='Fitted Gaussian'
+            try:
+                popt, pcov = curve_fit(gaussian, x, y, p0=[1, np.mean(x), np.std(x)])
+                fit_x = np.linspace(x.min(), x.max(), 200)
+                plt.plot(fit_x, gaussian(fit_x, *popt), color + '-')  # label='Fitted Gaussian'
+            except (RuntimeError, TypeError, ValueError) as e:
+                print(f"Could not fit a Gaussian to {label}: {e}")
             # Plot the data
-            plt.plot(x, y, label=label, color=colors[index], marker='o', linestyle='none')  # linestyle='dotted'
+            plt.plot(x, y, label=label, color=color, marker='o', linestyle='none')  # linestyle='dotted'
 
             # Plot the derivative
             # derivative = np.gradient(y, x)
@@ -205,62 +241,37 @@ class DataSelectionApp:
         plt.show()
         pass
 
-    def error_handling(self):
-        if self.file_path == '' and self.folder_path.get() == '':
-            raise ValueError("No file selected!")
-        if self.file_path and self.folder_path.get():
-            raise ValueError(
-                "file and folder selected?")
-
     def quit_ui(self):
         self.master.destroy()
         quit(2)
 
 
+def is_trial_results_file(path):
+    """True for the per-trial results files written by main.py (not trajectories or final_results)."""
+    name = os.path.basename(path).lower()
+    return name.endswith('_results.csv') and not name.endswith('_trajectory_results.csv') \
+        and name != 'final_results.csv'
+
+
 def get_frequency(string):
-    """regex extraction of frequency from input string.
+    """regex extraction of frequency (kHz) from a filename.
 
-    If the final_results.csv includes unexpected frequencies, or "unexpected filename" this is the culprit.
-    The assumption is that
-        1. the nd2 file is tracked and turned into a "nd2filename_results.csv" file
-        2. The "nd2filename_results.csv" contains a frequency followed by kHz
+    Finds a number followed by "kHz" (any case), optionally separated by spaces, "_" or "-". The number must not
+    be glued to a preceding digit or decimal point, so a cell line name in front of the frequency is ignored:
+        "a375 120 khz_results.csv"            -> 120
+        "exotic_cell_type2 15khz_results.csv" -> 15
+        "A375_12.5kHz_results.csv"            -> 12.5
+        "A375_1000kHz_results.csv"            -> 1000
 
-    Unexpected behavior might happen if
-        there is no frequency in the filename
-        if we stop using khz
-        if we name the file with a number directly before the frequency.
-
-        Example of bad filename (this case is handled)
-        "a375 120 khz_results.csv" -> 375120 (caught when number is greater than 3 see pesky cell name if statement)
-        Example of unexpected filename
-        "exotic_cell_type2 15khz_results.csv" -> 215 (AAAAAAH!)
-
-        The best practice would be to name files with "_numberkHz_" separated from other numbers
-
-
+    Returns None if there is no frequency in the name.
+    The best practice is still to name files with "_numberkHz_" separated from other numbers.
     """
-
-    # Format string by removing whitespace and making it all lowercase
-    formatted_string = string.replace(" ", "").lower()
-
-    # Define regex pattern to match a number followed by an optional wildcard character and "khz"
-    pattern = r"(\d+).?khz"
-
-    # Search the string for the pattern
-    match = re.search(pattern, formatted_string)
-
-    if match:
-        # Extract the number part from the match
-        extracted_number = match.group(1)
-
-        # Handle pesky cell names. Example: A375 140 khz would return 375140 otherwise
-        if len(extracted_number) > 3:
-            extracted_number = extracted_number[-3:]
-    else:
-        extracted_number = "unexpected filename"
-        print("Could not find a number followed by 'khz' or 'kHz'")
-
-    return extracted_number
+    match = re.search(r"(?<![\d.])(\d+(?:\.\d+)?)[\s_-]*khz", string.lower())
+    if not match:
+        print(f"Could not find a number followed by 'khz' or 'kHz' in {string}")
+        return None
+    value = float(match.group(1))
+    return int(value) if value.is_integer() else value
 
 
 def gaussian(x, amplitude, mean, stddev):
@@ -269,7 +280,10 @@ def gaussian(x, amplitude, mean, stddev):
 
 def create_plotting_ui():
     root = tk.Tk()
-    root.iconbitmap(r'count.ico')
+    try:
+        root.iconbitmap(ICON_PATH)
+    except tk.TclError:
+        pass  # .ico icons are only supported on Windows
     root.title("COUNT Plotter")
     app = DataSelectionApp(root)
     root.mainloop()
