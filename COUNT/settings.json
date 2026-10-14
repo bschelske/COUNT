@@ -4,6 +4,7 @@
     "max_centroid_distance": 70,
     "timeout": 20,
     "cell_radius": 8,
+    "min_frames_tracked": 3,
     "save_overlay": false,
     "csv_save_path": "results/"
 }

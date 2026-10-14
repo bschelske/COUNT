@@ -7,61 +7,59 @@ This is where most of the work is done. The main.py file will run this code usin
 General tracking strategy:
     Import ND2 file and perform MOG2 background subtraction
     Use canny edge detection on background subtracted frames to generate contours
-    Track contours through time using minimum distance traveled between frames
+    Track contours through time: each frame, every detection is paired with at most one existing track
+    (and every track with at most one detection), nearest pairs first
 
-Specific tracking nuance:
-    Objects are tracked assuming they enter from the left of the image
-    There needs to be space to the left and right of the ROI
-        Necessary to check that objects enter from the left
-        and disappear on the right
-    Tracking would likely improve on nd2 files where
-        Objects have good contrast on background
-        files are high frame rate
-            (High FPS = More data... try decreasing camera ROI to make files smaller at high FPS)
-    If you decide to save overlays, you'll get a bunch of .png files in a folder.
-        hint: ffmpeg
+Device assumptions:
+    Cells flow from left to right
+    Two outlets on the right side of the image, split at the vertical middle of the image
+        Top outlet: positive DEP response (DEP_response = True)
+        Bottom outlet: no positive DEP response (DEP_response = False)
+    A cell's outlet is decided by the centre of its last detected position
+
+Counting:
+    A track is counted once it has been detected in at least `min_frames_tracked` frames.
+    Shorter tracks are treated as noise and discarded.
+    A track that is not seen for more than `timeout` frames is closed.
+
+If you decide to save overlays, you'll get a .png per frame in the overlay folder.
+    hint: ffmpeg
 
 Read more:
 https://github.com/bschelske/COUNT
 """
 import csv
+import os
 import typing
 
 import cv2 as cv
 import numpy as np
 from tqdm import tqdm
-from pims import ND2Reader_SDK
+
+DEFAULT_MIN_FRAMES_TRACKED = 3
 
 
 class DetectedObject:
     """
-    This class represents a detected object with various properties and methods to manipulate and track the object.
+    A detected object (a cell). The same instance is kept and updated for as long as the cell is tracked.
 
     Attributes:
     ----------
     object_id : int
-        A unique identifier for the object.
-    position : Tuple[float, float]
-        The (x, y) position of the object.
-    size : Tuple[float, float]
-        The (w, h) size of the object.
+        A unique identifier for the object (None until it is matched or added as a new track).
+    position : Tuple[int, int]
+        The (x, y) top-left corner of the object's bounding box in its most recent frame.
+    size : Tuple[int, int]
+        The (w, h) size of the bounding box in its most recent frame.
     most_recent_frame : int
         The most recent frame number where the object was detected.
-    DEP_outlet : Bool
-        True: object is influenced by DEP, False: no DEP. Determined by obj y position
+    DEP_outlet : bool
+        True: object left through the top outlet (positive DEP). False: bottom outlet.
+        Decided from the centre of the object's last position.
     frames_tracked : int
-        The number of frames the object has been tracked.
-
-    Methods
-    -------
-    update_frames_tracked() -> None
-        Increments the frame tracking counter.
-
-    center() -> Tuple[float, float]
-        Calculates and returns the center position of the object.
-
-    outlet_assignment(roi_h: float, roi_y: float) -> None
-        Assigns the DEP outlet status based on the object's position within the ROI.
+        The number of frames in which the object was detected.
+    position_history : Dict[int, Tuple[int, int]]
+        {frame_number: (x, y)} for every frame the object was detected in.
     """
 
     def __init__(self, object_id, position, size, most_recent_frame):
@@ -70,173 +68,157 @@ class DetectedObject:
         self.size = size
         self.most_recent_frame = most_recent_frame
         self.DEP_outlet = ''
-        self.frames_tracked = 0
+        self.frames_tracked = 1
         self.position_history = {self.most_recent_frame: self.position}
-        self.displacement_history = []
 
-    # Deprecated?
-    # def update(self, most_recent_frame, new_position):
-    #     self.frames_tracked += 1
-    #     self.most_recent_frame = most_recent_frame
-    #
-    #     self.displacement_history.append(new_position[0] - self.position[0])
-    #
-    #     self.position = new_position
-    #     self.position_history[self.most_recent_frame] = self.position
-    #
-    # def update_frames_tracked(self):
-    #     self.frames_tracked += 1
+    def center(self) -> typing.Tuple[float, float]:
+        return self.position[0] + self.size[0] / 2, self.position[1] + self.size[1] / 2
 
-    def center(self):
-        return self.position[0] + self.size[0] // 2, self.position[1] + self.size[1] // 2
+    def update(self, detection: "DetectedObject", frame_number: int) -> None:
+        """Move this track to a new detection in `frame_number`."""
+        self.position = detection.position
+        self.size = detection.size
+        self.most_recent_frame = frame_number
+        self.frames_tracked += 1
+        self.position_history[frame_number] = detection.position
 
-    def outlet_assignment(self, image_h):
-        if int(self.position[1]) < (image_h // 2):
-            self.DEP_outlet = True  # DEP Responsive
-        else:
-            self.DEP_outlet = False  # Not DEP Responsive
+    def outlet_assignment(self, image_h: int) -> None:
+        """Top half of the image = top outlet = positive DEP response."""
+        self.DEP_outlet = self.center()[1] < image_h / 2
 
 
-def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Tuple[
-    typing.List[DetectedObject], typing.List[DetectedObject]]:
+def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> float:
+    """Calculates the euclidean distance between the centres of two objects"""
+    x1, y1 = detected_object1.center()
+    x2, y2 = detected_object2.center()
+    return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
+
+def match_detections(tracks: typing.Dict[int, DetectedObject], detections: typing.List[DetectedObject],
+                     frame_number: int, max_distance: float, backtrack_tolerance: float) -> typing.List[DetectedObject]:
     """
-    Process ND2 file to detect and track objects across frames.
+    Pair detections in this frame with existing tracks and update the matched tracks.
 
-    Args:
-        nd2_file_path (str): Path to the ND2 file.
-        ui_app: User interface application instance with necessary methods and attributes.
+    Each track can take at most one detection and each detection can join at most one track. Candidate pairs
+    are accepted closest first. A pair is only allowed if the detection is within `max_distance` of the track
+    and has not moved left by more than `backtrack_tolerance` pixels (cells flow left to right, but a cell
+    that pauses or whose outline jitters should still match).
 
-    Returns:
-        typing.Tuple[List[DetectedObject], List[DetectedObject]]:
-            - A list of final positions of tracked objects.
-            - A list of all detected objects across frames.
+    Returns the detections that did not match any track (these are new cells, or noise).
     """
-    surviving_objects_dict = {}  # {object_id: object}
-    expired_objects_dict = {}  # {object_id: object}
-    object_history_list = []  # Tracking data for every object identified
-    next_new_id = 1  # ID number for first object
-    backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+    candidates = []
+    for track_id, track in tracks.items():
+        track_x, _ = track.center()
+        for index, detection in enumerate(detections):
+            if detection.center()[0] < track_x - backtrack_tolerance:
+                continue
+            distance = calculate_distance(detection, track)
+            if distance <= max_distance:
+                candidates.append((distance, track_id, index))
 
-    with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        # Get information about nd2 file
-        image_h = nd2_file.metadata['height']
+    candidates.sort()
+    used_tracks = set()
+    used_detections = set()
+    for distance, track_id, index in candidates:
+        if track_id in used_tracks or index in used_detections:
+            continue
+        tracks[track_id].update(detections[index], frame_number)
+        used_tracks.add(track_id)
+        used_detections.add(index)
 
-        if 'm' in nd2_file.sizes.keys(): # new nikon weirdness
-            nd2_file.iter_axes = 'm'
-
-        # Get total frame count for batching
-        total_frames = len(nd2_file)
-        batch_size = 100  # Process 100 frames at a time
-
-        if ui_app.save_overlay.get():
-            print(f"\noverlay saving in {ui_app.overlay_path}")
-
-        for batch_start in range(0, total_frames, batch_size):
-            batch_end = min(batch_start + batch_size, total_frames)
-
-            # Perform tracking on each frame
-            for frame_number in tqdm(range(batch_start, batch_end), f"Batch {batch_start//batch_size+1}"):
-                frame_data = nd2_file[frame_number]
-                frame_data = cv.normalize(frame_data, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-                backSub_mask = backSub.apply(frame_data)
-                # Detect Objects
-                objects_in_frame_list, overlay_frame = detect_objects(frame_data=frame_data, frame_index=frame_number,
-                                                                      backSub_mask=backSub_mask, ui_app=ui_app)
-                object_history_list.extend(objects_in_frame_list)
-
-                # Expire outgoing objects
-                if surviving_objects_dict:
-                    surviving_objects_dict, expired_objects_dict = expire_objects(surviving_objects_dict,
-                                                                                  expired_objects_dict,
-                                                                                  frame_number, image_h, ui_app)
-
-                # Match current objects to object history
-                for object_in_frame in objects_in_frame_list:
-                    no_match, surviving_objects_dict = match_tracked_objects(surviving_objects_dict, object_in_frame,
-                                                                             frame_number,
-                                                                             ui_app)
-                    # Add incoming objects
-                    if no_match:
-                        surviving_objects_dict, next_new_id = add_new_objects(object_in_frame, surviving_objects_dict,
-                                                                              next_new_id,
-                                                                              frame_number)
-                # Add text, object ids to each frame, if chosen
-                if ui_app.save_overlay.get():
-                    save_overlay_frame = overlay_frame.copy()
-                    # Add text to top of frame
-                    cv.putText(save_overlay_frame,
-                               str(f"In-Frame: {len(objects_in_frame_list)} Total: {len(expired_objects_dict)}"),
-                               (10, 40), cv.FONT_HERSHEY_SIMPLEX, 1,
-                               (0, 0, 255), 2, cv.LINE_AA)
-
-                    # Add IDs to each tracked object
-                    for object_id, tracked_object in surviving_objects_dict.items():
-                        if tracked_object.frames_tracked > ui_app.timeout.get()//2:
-                            cv.putText(save_overlay_frame,
-                                       str(object_id),
-                                       tracked_object.position, cv.FONT_HERSHEY_SIMPLEX, 1,
-                                       (0, 0, 0), 1, cv.LINE_AA)
-                        else:
-                            pass
-
-                # Save overlay frames to results/overlay folder (default)
-                if ui_app.save_overlay.get():
-                    save_path = ui_app.overlay_path + f"{frame_number:03d}.png"
-                    cv.imwrite(save_path, overlay_frame)
-                    del save_overlay_frame
-
-            import gc
-            gc.collect()
-
-    # After processing all batches, properly handle the remaining objects
-    # Ensure all surviving objects have their DEP_outlet assigned
-    for obj_id, tracked_obj in surviving_objects_dict.items():
-        tracked_obj.outlet_assignment(image_h)
-
-    # Now add all remaining tracked objects to expired list
-    expired_objects_dict.update(surviving_objects_dict)
-    return expired_objects_dict, object_history_list
+    return [detection for index, detection in enumerate(detections) if index not in used_detections]
 
 
-def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
-    frame_copy = frame_data.view()
+class Tracker:
+    """Keeps the active tracks for one video and decides which ones are counted."""
 
-    # If saving overlay frames, a copy of the original frame must be converted from gray to color
-    if ui_app.save_overlay.get():
-        overlay_frame = cv.normalize(frame_copy, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-        overlay_frame = cv.cvtColor(overlay_frame, cv.COLOR_GRAY2BGR)
+    def __init__(self, image_h: int, max_centroid_distance: float, timeout: int,
+                 min_frames_tracked: int = DEFAULT_MIN_FRAMES_TRACKED, backtrack_tolerance: float = 0):
+        self.image_h = image_h
+        self.max_centroid_distance = max_centroid_distance
+        self.timeout = timeout
+        self.min_frames_tracked = min_frames_tracked
+        self.backtrack_tolerance = backtrack_tolerance
+        self.active = {}  # {object_id: DetectedObject} tracks that may still receive detections
+        self.counted = {}  # {object_id: DetectedObject} closed tracks that count as cells
+        self.next_id = 1
 
-    if backSub_mask.any():
-        foreground_mask = backSub_mask
-    else:
-        foreground_mask = frame_copy
+    def update(self, detections: typing.List[DetectedObject], frame_number: int) -> None:
+        self._close_lost_tracks(frame_number)
+        unmatched = match_detections(self.active, detections, frame_number, self.max_centroid_distance,
+                                     self.backtrack_tolerance)
+        for detection in unmatched:
+            detection.object_id = self.next_id
+            detection.most_recent_frame = frame_number
+            self.active[self.next_id] = detection
+            self.next_id += 1
 
-    # Process the grayscale copy of the frame for canny edge detection
+    def finish(self) -> typing.Dict[int, DetectedObject]:
+        """Close every remaining track (end of video) and return the counted objects."""
+        for track_id in list(self.active):
+            self._close(track_id)
+        return self.counted
+
+    def counted_so_far(self) -> int:
+        """Closed tracks that counted, plus active tracks that are already long enough to count."""
+        return len(self.counted) + sum(1 for t in self.active.values()
+                                       if t.frames_tracked >= self.min_frames_tracked)
+
+    def _close_lost_tracks(self, frame_number: int) -> None:
+        for track_id, track in list(self.active.items()):
+            if (frame_number - track.most_recent_frame) > self.timeout:
+                self._close(track_id)
+
+    def _close(self, track_id: int) -> None:
+        track = self.active.pop(track_id)
+        if track.frames_tracked >= self.min_frames_tracked:
+            track.outlet_assignment(self.image_h)
+            self.counted[track_id] = track
+
+
+def _setting(ui_app, name, default=None):
+    """Read a tkinter variable from the UI, or fall back to a default if the UI doesn't have it."""
+    variable = getattr(ui_app, name, None)
+    return variable.get() if variable is not None else default
+
+
+def find_cell_contours(foreground_mask, canny_lower, canny_upper, cell_radius):
+    """Edge-detect the background-subtracted mask and return contours that are plausibly single cells."""
     normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
     # Morphological operation to reduce noise
     kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
     cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
-    # Canny edge detection
-    canny_img = cv.Canny(cleaned_frame, ui_app.canny_lower.get(), ui_app.canny_upper.get(), 5)
-    contours, hierarchy = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+    canny_img = cv.Canny(cleaned_frame, canny_lower, canny_upper, apertureSize=3)
+    contours, _ = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
+    _, contours = remove_overlapped_objects(normalized_frame, contours, cell_radius)
 
-    frame_copy, contours = remove_overlapped_objects(normalized_frame, contours, ui_app.cell_radius.get())
+    max_size = cell_radius * 10
+    kept = []
+    for cnt in contours:
+        _, _, w, h = cv.boundingRect(cnt)
+        if w <= max_size and h <= max_size:
+            kept.append(cnt)
+    return kept
 
+
+def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
+    """
+    Find cells in one frame.
+
+    Returns (objects, contours): a DetectedObject per cell and the matching contours (for drawing overlays).
+    If background subtraction found no motion in this frame, nothing is detected.
+    """
+    if not backSub_mask.any():
+        return [], []
+
+    contours = find_cell_contours(backSub_mask, ui_app.canny_lower.get(), ui_app.canny_upper.get(),
+                                  ui_app.cell_radius.get())
     objects = []
-    # Create a DetectedObject instance for each contour
     for cnt in contours:
         x, y, w, h = cv.boundingRect(cnt)
-        if (w > ui_app.cell_radius.get() * 10) or (h > ui_app.cell_radius.get() * 10):
-            pass
-        else:
-            objects.append(
-                    DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+        objects.append(DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
+    return objects, contours
 
-            # Draw the contour in red onto the color frame
-            if ui_app.save_overlay.get():
-                cv.drawContours(overlay_frame, [cnt], 0, (0, 0, 255), 2)
-                frame_copy = overlay_frame
-    return objects, frame_copy
 
 def remove_overlapped_objects(frame_copy, contours, cell_radius):
     mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
@@ -251,63 +233,79 @@ def remove_overlapped_objects(frame_copy, contours, cell_radius):
     contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
     return frame_copy, contours
 
-def expire_objects(surviving_objects_dict, expired_objects_dict, frame_number, image_h, ui_app):
-    for obj_id, tracked_obj in list(surviving_objects_dict.items()):
-        if (frame_number - tracked_obj.most_recent_frame) > ui_app.timeout.get():
-            # Removed expired objects that are not tracked
-            if tracked_obj.frames_tracked < ui_app.timeout.get():
-                del surviving_objects_dict[tracked_obj.object_id]
-            # Add expired objects that were being tracked
-            else:
-                tracked_obj.outlet_assignment(image_h)
-                expired_objects_dict[tracked_obj.object_id] = tracked_obj
-                del surviving_objects_dict[tracked_obj.object_id]
 
-    return surviving_objects_dict, expired_objects_dict
+def draw_overlay(frame_8u, contours, tracker: Tracker, frame_number: int, objects_in_frame: int):
+    """Return a colour copy of the frame with contours, the outlet dividing line, track IDs and counts."""
+    overlay = cv.cvtColor(frame_8u, cv.COLOR_GRAY2BGR)
+    image_h, image_w = overlay.shape[:2]
 
+    # Dividing line between the top (DEP) and bottom (no DEP) outlets
+    cv.line(overlay, (0, image_h // 2), (image_w - 1, image_h // 2), (128, 128, 128), 1)
+    cv.drawContours(overlay, contours, -1, (0, 0, 255), 2)
 
-def match_tracked_objects(surviving_objects_dict, object_in_frame, frame_number, ui_app):
-    if not surviving_objects_dict:
-        no_match = True
-        return no_match, surviving_objects_dict
+    # Label tracks that were seen in this frame and are long enough to count
+    for object_id, track in tracker.active.items():
+        if track.most_recent_frame == frame_number and track.frames_tracked >= tracker.min_frames_tracked:
+            x, y = track.position
+            cv.putText(overlay, str(object_id), (int(x), max(int(y) - 4, 12)), cv.FONT_HERSHEY_SIMPLEX, 0.5,
+                       (0, 255, 255), 1, cv.LINE_AA)
 
-    candidates = {}
-    # Go through each item in the tracking queue
-    for obj_id, previous_object_instance in surviving_objects_dict.items():
-        distance = calculate_distance(object_in_frame, previous_object_instance)
-        if (object_in_frame.position[0] > previous_object_instance.position[0]) and (
-                distance < ui_app.max_centroid_distance.get()):
-            candidates[previous_object_instance] = distance
-    if candidates:
-        matched_object = min(candidates, key=candidates.get)
-        object_in_frame.object_id = matched_object.object_id
-        object_in_frame.most_recent_frame = frame_number
-        object_in_frame.frames_tracked = matched_object.frames_tracked + 1
-        surviving_objects_dict[object_in_frame.object_id] = object_in_frame
-        no_match = False
-        return no_match, surviving_objects_dict
-    else:
-        no_match = True
-        return no_match, surviving_objects_dict
+    cv.putText(overlay, f"Frame: {frame_number}  In-Frame: {objects_in_frame}  Counted: {tracker.counted_so_far()}",
+               (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv.LINE_AA)
+    return overlay
 
 
-def add_new_objects(new_object, objects_in_previous_frame_dict, next_new_id, frame_number):
-    new_object.object_id = next_new_id
-    new_object.most_recent_frame = frame_number
-    objects_in_previous_frame_dict[next_new_id] = new_object
-    next_new_id += 1
-    return objects_in_previous_frame_dict, next_new_id
+def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObject]:
+    """
+    Process ND2 file to detect and track objects across frames.
+
+    Args:
+        nd2_file_path (str): Path to the ND2 file.
+        ui_app: User interface application instance with the tracking settings.
+
+    Returns:
+        {object_id: DetectedObject} for every counted cell. Each object's position_history holds its trajectory.
+    """
+    from pims import ND2Reader_SDK  # imported here so the tracking logic can be used and tested without the SDK
+
+    backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+    save_overlay = bool(_setting(ui_app, "save_overlay", False))
+    file_stem = os.path.splitext(os.path.basename(nd2_file_path))[0]
+    tracker = None
+
+    if save_overlay:
+        os.makedirs(ui_app.overlay_path, exist_ok=True)
+        print(f"\noverlay saving in {ui_app.overlay_path}")
+
+    with ND2Reader_SDK(nd2_file_path) as nd2_file:
+        if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
+            nd2_file.iter_axes = 'm'
+
+        for frame_number in tqdm(range(len(nd2_file)), desc=file_stem):
+            frame_data = cv.normalize(nd2_file[frame_number], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+            if tracker is None:
+                tracker = Tracker(image_h=frame_data.shape[0],
+                                  max_centroid_distance=ui_app.max_centroid_distance.get(),
+                                  timeout=ui_app.timeout.get(),
+                                  min_frames_tracked=_setting(ui_app, "min_frames_tracked",
+                                                             DEFAULT_MIN_FRAMES_TRACKED),
+                                  backtrack_tolerance=ui_app.cell_radius.get())
+
+            backSub_mask = backSub.apply(frame_data)
+            objects_in_frame, contours = detect_objects(frame_data=frame_data, frame_index=frame_number,
+                                                        backSub_mask=backSub_mask, ui_app=ui_app)
+            tracker.update(objects_in_frame, frame_number)
+
+            if save_overlay:
+                overlay = draw_overlay(frame_data, contours, tracker, frame_number, len(objects_in_frame))
+                cv.imwrite(os.path.join(ui_app.overlay_path, f"{file_stem}_{frame_number:05d}.png"), overlay)
+
+    if tracker is None:  # empty file
+        return {}
+    return tracker.finish()
 
 
-def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> int:
-    """Calculates the euclidean distance between two objects"""
-    possible_center = detected_object1.center()
-    tracked_center = detected_object2.center()
-    distance = int(
-        (((possible_center[0] - tracked_center[0]) ** 2) + ((possible_center[1] - tracked_center[1]) ** 2)) ** 0.5)
-    return distance
-
-def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
+def export_to_csv(counted_objects: typing.Dict[int, DetectedObject], csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
                       'DEP_response']
@@ -316,7 +314,7 @@ def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
         DEP_true = 0
         DEP_false = 0
 
-        for object_id, obj in expired_objects_dict.items():
+        for object_id, obj in counted_objects.items():
             if obj.DEP_outlet is True:
                 DEP_true += 1
             else:
@@ -333,18 +331,19 @@ def export_to_csv(expired_objects_dict, csv_filename: str) -> None:
                 'DEP_response': obj.DEP_outlet
             })
         print("\nObject Detection Results:")
-        print(f"\tCells counted: {len(expired_objects_dict)}")
+        print(f"\tCells counted: {len(counted_objects)}")
         print(f"\tDEP True: {DEP_true}")
         print(f"\tDEP False: {DEP_false}")
         print(f"{csv_filename} saved")
 
 
-def export_trajectories_to_csv(objects_list, csv_filename: str) -> None:
+def export_trajectories_to_csv(objects: typing.Iterable[DetectedObject], csv_filename: str) -> None:
+    """One row per (counted object, frame it was detected in)."""
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['frame', 'object_id', 'x_pos', 'y_pos', 'x_size', 'y_size']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
-        for obj in objects_list:
+        for obj in objects:
             for frame, position in obj.position_history.items():
                 writer.writerow({
                     'frame': frame,
@@ -355,4 +354,3 @@ def export_trajectories_to_csv(objects_list, csv_filename: str) -> None:
                     'y_size': obj.size[1]
                 })
     print(f"\n{csv_filename} saved")
-
