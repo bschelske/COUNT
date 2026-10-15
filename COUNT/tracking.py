@@ -3,6 +3,7 @@
 T R A C K I N G
 ===================
 This is where most of the work is done. The main.py file will run this code using instructions from the UI.
+Input files can be Nikon .nd2 files or .avi videos.
 
 General tracking strategy:
     Import ND2 file and perform MOG2 background subtraction
@@ -30,6 +31,7 @@ If you decide to save overlays, you'll get a .png per frame in the overlay folde
 Read more:
 https://github.com/bschelske/COUNT
 """
+import contextlib
 import csv
 import os
 import typing
@@ -40,6 +42,88 @@ from tqdm import tqdm
 
 DEFAULT_MIN_FRAMES_TRACKED = 3
 BACKGROUND_PRIMING_FRAMES = 30  # frames used to learn the background before tracking starts
+VIDEO_EXTENSIONS = (".nd2", ".avi")  # file types COUNT can track
+
+
+def is_supported_video(path: str) -> bool:
+    return path.lower().endswith(VIDEO_EXTENSIONS)
+
+
+class AviReader:
+    """
+    The frames of an AVI file as greyscale images, indexed by frame number like an ND2 reader.
+
+    Frames are decoded in order, which is how COUNT reads them; asking for an earlier frame reopens the file.
+    """
+
+    def __init__(self, path: str):
+        self.path = path
+        capture = cv.VideoCapture(path)
+        if not capture.isOpened():
+            raise IOError(f"Could not open video file {path}")
+        # Count frames by skipping through the file: the frame count stored in an AVI header can be wrong
+        self._length = 0
+        while capture.grab():
+            self._length += 1
+        capture.release()
+        self._capture = None
+        self._next_frame = 0
+        self._open()
+
+    def _open(self):
+        if self._capture is not None:
+            self._capture.release()
+        self._capture = cv.VideoCapture(self.path)
+        self._next_frame = 0
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, index: int):
+        if index < 0:
+            index += self._length
+        if not 0 <= index < self._length:
+            raise IndexError(f"frame {index} is outside {self.path} ({self._length} frames)")
+        if index < self._next_frame:
+            self._open()
+        while self._next_frame < index:  # skip ahead without decoding
+            self._capture.grab()
+            self._next_frame += 1
+        ok, frame = self._capture.read()
+        if not ok:
+            raise IOError(f"Could not read frame {index} of {self.path}")
+        self._next_frame += 1
+        if frame.ndim == 3:
+            frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        return frame
+
+    def close(self):
+        if self._capture is not None:
+            self._capture.release()
+            self._capture = None
+
+
+@contextlib.contextmanager
+def open_video(path: str):
+    """
+    Open an .nd2 or .avi file. Use as `with open_video(path) as frames:`; `frames[i]` is frame i as a
+    greyscale image and `len(frames)` is the number of frames.
+    """
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".avi":
+        reader = AviReader(path)
+        try:
+            yield reader
+        finally:
+            reader.close()
+    elif extension == ".nd2":
+        from pims import ND2Reader_SDK  # imported here so AVI files and the tests work without the Nikon SDK
+        with ND2Reader_SDK(path) as reader:
+            if 'm' in reader.sizes.keys():  # new nikon weirdness
+                reader.iter_axes = 'm'
+            yield reader
+    else:
+        raise ValueError(f"Unsupported file type {extension!r} ({path}). COUNT reads .nd2 and .avi files.")
 
 
 class DetectedObject:
@@ -291,17 +375,15 @@ def draw_overlay(frame_8u, contours, tracker: Tracker, frame_number: int, object
 
 def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObject]:
     """
-    Process ND2 file to detect and track objects across frames.
+    Process an ND2 or AVI file to detect and track objects across frames.
 
     Args:
-        nd2_file_path (str): Path to the ND2 file.
+        nd2_file_path (str): Path to the .nd2 or .avi file.
         ui_app: User interface application instance with the tracking settings.
 
     Returns:
         {object_id: DetectedObject} for every counted cell. Each object's position_history holds its trajectory.
     """
-    from pims import ND2Reader_SDK  # imported here so the tracking logic can be used and tested without the SDK
-
     backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
     save_overlay = bool(_setting(ui_app, "save_overlay", False))
     file_stem = os.path.splitext(os.path.basename(nd2_file_path))[0]
@@ -311,10 +393,7 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObj
         os.makedirs(ui_app.overlay_path, exist_ok=True)
         print(f"\noverlay saving in {ui_app.overlay_path}")
 
-    with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
-            nd2_file.iter_axes = 'm'
-
+    with open_video(nd2_file_path) as nd2_file:
         prime_background(backSub, nd2_file, len(nd2_file))
 
         for frame_number in tqdm(range(len(nd2_file)), desc=file_stem):

@@ -296,5 +296,52 @@ class TestEndToEnd(unittest.TestCase):
         self.assertEqual({int(r['object_id']) for r in rows}, set(counted))
 
 
+def write_avi(path, frames):
+    """Save 16-bit synthetic frames as an 8-bit MJPG AVI."""
+    height, width = frames[0].shape
+    writer = cv.VideoWriter(path, cv.VideoWriter_fourcc(*"MJPG"), 30, (width, height), isColor=False)
+    for frame in frames:
+        writer.write(cv.normalize(frame, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
+    writer.release()
+
+
+class TestAviInput(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.frames = synthetic_video()
+        self.path = os.path.join(self.tmp.name, "trial_20kHz.avi")
+        write_avi(self.path, self.frames)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_reader_gives_greyscale_frames_in_any_order(self):
+        with tracking.open_video(self.path) as frames:
+            self.assertEqual(len(frames), len(self.frames))
+            first = frames[0]
+            self.assertEqual(first.shape, self.frames[0].shape)  # greyscale, same size
+            later = frames[10]
+            self.assertTrue(np.array_equal(frames[0], first))  # going back re-reads the same frame
+            self.assertTrue(np.array_equal(frames[10], later))
+            self.assertTrue(np.array_equal(frames[-1], frames[len(frames) - 1]))
+            with self.assertRaises(IndexError):
+                frames[len(frames)]
+
+    def test_counts_cells_in_avi(self):
+        counted = tracking.nd2_mog_contours(self.path, FakeUI())
+        self.assertEqual(len(counted), 3)
+        self.assertEqual(sum(o.DEP_outlet is True for o in counted.values()), 2)
+
+    def test_unsupported_file_type(self):
+        with self.assertRaises(ValueError):
+            with tracking.open_video(os.path.join(self.tmp.name, "movie.mp4")):
+                pass
+
+    def test_is_supported_video(self):
+        self.assertTrue(tracking.is_supported_video("a.ND2"))
+        self.assertTrue(tracking.is_supported_video("b.avi"))
+        self.assertFalse(tracking.is_supported_video("c_results.csv"))
+
+
 if __name__ == '__main__':
     unittest.main()

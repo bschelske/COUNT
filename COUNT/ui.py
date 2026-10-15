@@ -4,7 +4,6 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import cv2
-from pims import ND2Reader_SDK
 from COUNT import tracking
 """
 This code handles the creation of the user interface (UI).
@@ -80,13 +79,13 @@ class ROISelectionApp:
         """Makes the visual parts of the UI. Ignore unless changing position of UI elements"""
         justification = "w"
         # File selection button
-        tk.Label(self.master, text="For individual .nd2 file", anchor=justification).grid(sticky="w", row=0, column=0,
+        tk.Label(self.master, text="For individual .nd2 or .avi file", anchor=justification).grid(sticky="w", row=0, column=0,
                                                                                           padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
         self.file_button.grid(row=0, column=1, padx=5, pady=5)
 
         # Folder selection button
-        tk.Label(self.master, text="For .nd2 files in a folder", anchor=justification).grid(sticky="w", row=1, column=0,
+        tk.Label(self.master, text="For .nd2/.avi files in a folder", anchor=justification).grid(sticky="w", row=1, column=0,
                                                                                             padx=5, pady=5)
         self.folder_button = tk.Button(self.master, text="Choose Folder", command=self.choose_folder)
         self.folder_button.grid(row=1, column=1, padx=5, pady=5)
@@ -195,7 +194,8 @@ class ROISelectionApp:
         messagebox.showinfo("Help", "See the README: https://github.com/bschelske/COUNT")
 
     def choose_file(self):
-        path = filedialog.askopenfilename(filetypes=[("ND2 files", "*.nd2")])
+        path = filedialog.askopenfilename(filetypes=[("ND2 or AVI files", "*.nd2 *.avi"), ("ND2 files", "*.nd2"),
+                                                     ("AVI files", "*.avi")])
         if not path:  # dialog cancelled
             return
         # A file replaces any folder chosen earlier
@@ -211,8 +211,8 @@ class ROISelectionApp:
         # A folder replaces any file chosen earlier
         self.folder_path.set(path)
         self.file_path = ""
-        count = len(list_nd2_files(path))
-        self.selection_text.set(f"Folder: {os.path.basename(path)} ({count} .nd2 files)")
+        count = len(list_video_files(path))
+        self.selection_text.set(f"Folder: {os.path.basename(path)} ({count} .nd2/.avi files)")
         print("Selection:", self.folder_path.get())
 
     def choose_csv_output(self):
@@ -231,14 +231,14 @@ class ROISelectionApp:
         if self.file_path:
             self.files = [self.file_path]
         elif self.folder_path.get():
-            self.files = list_nd2_files(self.folder_path.get())
+            self.files = list_video_files(self.folder_path.get())
         else:
             self.files = []
 
     def confirm_selections(self):
         self.input_handling()
         if self.require_files and not self.files:
-            messagebox.showerror("Nothing to process", "Choose an .nd2 file, or a folder containing .nd2 files.")
+            messagebox.showerror("Nothing to process", "Choose an .nd2 or .avi file, or a folder containing them.")
             return
         try:
             for name in TRACKING_SETTINGS:
@@ -263,7 +263,7 @@ class ROISelectionApp:
         """Show detections on frames 4 and 5 of the selected file (or the first file in the selected folder)."""
         self.input_handling()
         if not self.files:
-            messagebox.showerror("Nothing to preview", "Choose an .nd2 file or folder first.")
+            messagebox.showerror("Nothing to preview", "Choose an .nd2 or .avi file, or a folder, first.")
             return
 
         # Get frames
@@ -289,9 +289,7 @@ class ROISelectionApp:
     def edge_detection_handling(self, frame_index):
         """Edge detection for UI preview, using the same detection code as the tracker"""
         backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        with ND2Reader_SDK(self.files[0]) as nd2_file:
-            if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
-                nd2_file.iter_axes = 'm'
+        with tracking.open_video(self.files[0]) as nd2_file:
             # MOG2 Background Method: prime the background exactly as the tracker does, then run up to frame_index
             tracking.prime_background(backSub, nd2_file, len(nd2_file))
             for index in range(frame_index + 1):
@@ -314,9 +312,9 @@ class ROISelectionApp:
         quit(2)
 
 
-def list_nd2_files(folder):
-    """All .nd2 files directly inside `folder`, sorted by name."""
-    return [os.path.join(folder, f) for f in sorted(os.listdir(folder)) if f.lower().endswith(".nd2")]
+def list_video_files(folder):
+    """All .nd2 and .avi files directly inside `folder`, sorted by name."""
+    return [os.path.join(folder, f) for f in sorted(os.listdir(folder)) if tracking.is_supported_video(f)]
 
 
 def create_ui(require_files=True):

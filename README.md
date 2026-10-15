@@ -8,7 +8,7 @@
 An object tracking system for analyzing cell movement and DEP response in microfluidic devices, useful in cancer diagnostics and single-cell analysis.
 
 **General workflow:**
-1. **Input Files**: Processes Nikon ND2 files directly using the `ND2Reader_SDK` library
+1. **Input Files**: Processes Nikon ND2 files directly using the `ND2Reader_SDK` library, or AVI videos
 2. **Background Subtraction**: MOG2 foreground segmentation isolates moving objects
 3. **Edge Detection**: Canny edge detection is used to find contours of objects
 4. **Contour Processing**: Overlapping contours are added to a mask and processed to identify distinct objects
@@ -17,7 +17,7 @@ An object tracking system for analyzing cell movement and DEP response in microf
 7. **Results**: Tracking data is exported to CSV files for further analysis
 
 ## Features
-- Direct processing of ND2 files through the PIMS library
+- Direct processing of ND2 files through the PIMS library, and of AVI videos through OpenCV
 - Customizable edge detection parameters through a user-friendly interface
 - Background subtraction for improved object detection
 - Centroid-based tracking of objects across frames
@@ -50,7 +50,7 @@ python COUNT/main.py
 
 ## How to Use
 1. Run `main.py` to open the user interface
-2. Select an individual ND2 file or a folder containing multiple ND2 files (choosing one replaces the other)
+2. Select an individual ND2 or AVI file, or a folder containing ND2/AVI files (choosing one replaces the other)
 3. Choose where to save the CSV results (optional)
 4. Configure tracking parameters:
    - **Canny Upper/Lower**: Threshold values for edge detection (3:1 or 2:1 ratio recommended)
@@ -99,7 +99,7 @@ Run `python COUNT/bg_plotting.py`:
 ```
 python tools/make_synthetic_videos.py synthetic_videos
 ```
-It makes three 8-bit AVI videos (12 cells each): `synth_easy_10kHz` (slow, well spaced), `synth_fast_50kHz` (cells crossing the image in 13-15 frames) and `synth_crowded_100kHz` (cells close together, side by side, pausing, and briefly out of focus). COUNT reads ND2 files, so convert each AVI in NIS-Elements (open it, then **File → Save As** `.nd2`), run COUNT on it with the default settings, and compare `<file>_results.csv` with `<file>_answer_key.csv`.
+It makes three 8-bit AVI videos (12 cells each): `synth_easy_10kHz` (slow, well spaced), `synth_fast_50kHz` (cells crossing the image in 13-15 frames) and `synth_crowded_100kHz` (cells close together, side by side, pausing, and briefly out of focus). Run COUNT on the folder with the default settings and compare each `<file>_results.csv` with its `<file>_answer_key.csv`. To also test ND2 reading, convert an AVI in NIS-Elements (open it, then **File → Save As** `.nd2`).
 
 ## Running the Tests
 From the repository folder:

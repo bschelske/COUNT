@@ -37,7 +37,7 @@ def main():
             # Get the filename without extension
             file_name = os.path.splitext(os.path.basename(nd2_file))[0]
 
-            # Track the nd2 file using MOG2 background subtraction
+            # Track the .nd2 or .avi file using MOG2 background subtraction
             counted_objects = tracking.nd2_mog_contours(nd2_file, app)
 
             csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
