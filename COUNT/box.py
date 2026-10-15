@@ -6,6 +6,7 @@ import threading
 import os
 import tempfile
 import tkinter as tk
+from tkinter import messagebox
 from dotenv import load_dotenv
 from tqdm import tqdm
 
@@ -90,7 +91,7 @@ class BoxAPI_App:
         self.master.destroy()
 
     def help(self):
-        tk.messagebox.showinfo("Help", "IDs are the numbers in the URL: \nEx: https://iastate.app.box.com/folder/123456789\nfolder_id=123456789")
+        messagebox.showinfo("Help", "IDs are the numbers in the URL: \nEx: https://iastate.app.box.com/folder/123456789\nfolder_id=123456789")
 
 
 def create_ui():
@@ -153,13 +154,13 @@ def download_file_from_box(client, file_id):
         # Write binary content to the temporary file
         print(f"Downloading {file_info.name} bytes in chunks and writing to {temp_file_path}")
         with tqdm(total=file_size, unit='B', unit_scale=True, desc="Writing file") as pbar:
-            # Define the chunk size (e.g., 1024 bytes)
-            chunk_size = 1024 * 1024 * 1024  # 1 GB
+            # Download in chunks so a large file never has to fit in memory at once
+            chunk_size = 64 * 1024 * 1024  # 64 MB
             byte_range_start = 0
 
-            # Loop through the file in byte ranges
+            # Loop through the file in byte ranges. Box byte ranges are inclusive at both ends: (0, 9) is 10 bytes.
             while byte_range_start < file_size:
-                byte_range_end = min(byte_range_start + chunk_size, file_size)
+                byte_range_end = min(byte_range_start + chunk_size, file_size) - 1
                 byte_range = (byte_range_start, byte_range_end)
 
                 # Download the chunk of data from Box
@@ -169,17 +170,40 @@ def download_file_from_box(client, file_id):
                 temp_file.write(chunk_data)
 
                 # Update the start of the next byte range
-                byte_range_start = byte_range_end
+                byte_range_start = byte_range_end + 1
 
                 pbar.update(len(chunk_data))
 
+    if os.path.getsize(temp_file_path) != file_size:
+        raise IOError(f"Download of {file_info.name} is incomplete: "
+                      f"{os.path.getsize(temp_file_path)} of {file_size} bytes")
     print(f"File written to {temp_file_path}")
     return temp_file_path
 
 
+def process_box_file(client, file_id, file_name, app):
+    """Download one .nd2 file from Box to a temporary file, track it, save the CSVs, then delete the temp file."""
+    temp_file_path = download_file_from_box(client, file_id)
+    try:
+        # COUNT onto downloaded temp file
+        counted_objects = tracking.nd2_mog_contours(temp_file_path, app)
+        stem = os.path.splitext(file_name)[0]
+        tracking.export_to_csv(counted_objects, os.path.join(app.csv_folder_path.get(), f"{stem}_results.csv"))
+        tracking.export_trajectories_to_csv(
+            counted_objects.values(), os.path.join(app.csv_folder_path.get(), f"{stem}_trajectory_results.csv"))
+    finally:
+        # Clean up the temporary file when done
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+            print(f"Temp file removed: {temp_file_path}")
+
+
 def main():
-    # Get user settings for COUNT
-    app = ui.create_ui()
+    # Get user settings for COUNT. In this mode the file/folder buttons are ignored: files come from Box.
+    app = ui.create_ui(require_files=False)
+    if not app.confirmed:
+        print("No files processed.")
+        return
 
     # Authenticate with Box
     client = authenticate_with_box()
@@ -188,38 +212,16 @@ def main():
     box_app = create_ui()
 
     # Get files from box
-    if box_app.file.get():
+    if box_app.file.get():  # Was a file id provided
         file_id = box_app.file.get()
         file_info = client.file(file_id).get()
-        temp_file_path = download_file_from_box(client, file_id)
-        try:
-            # COUNT onto downloaded temp file
-            object_final_position = tracking.nd2_mog_contours(temp_file_path, app)
-            tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
+        process_box_file(client, file_id, file_info.name, app)
 
-        finally:
-            # Clean up the temporary file when done
-            if os.path.exists(temp_file_path):
-                os.unlink(temp_file_path)
-                print(f"Temp file removed: {temp_file_path}")
-
-    if box_app.folder.get(): # Was a folder id provided
-        folder_items = client.folder(box_app.folder.get()).get_items()  # Get info about that folder
-        for item in folder_items:  # Go through items in the folder
-            file_info = client.file(item.id).get()
-            print(file_info.name)
-            if file_info.name[-3:] == 'nd2':  # nd2 files should be selected by extension
-                temp_file_path = download_file_from_box(client, item.id)  # temp download the nd2 file
-                try:
-                    # COUNT onto downloaded temp file
-                    object_final_position = tracking.nd2_mog_contours(temp_file_path, app)
-                    tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
-
-                finally:
-                    # Clean up the temporary file when done
-                    if os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
-                        print(f"Temp file removed: {temp_file_path}")
+    if box_app.folder.get():  # Was a folder id provided
+        for item in client.folder(box_app.folder.get()).get_items():  # Go through items in the folder
+            print(item.name)
+            if item.type == 'file' and item.name.lower().endswith('.nd2'):  # skip sub-folders and other files
+                process_box_file(client, item.id, item.name, app)
 
 
 if __name__ == "__main__":

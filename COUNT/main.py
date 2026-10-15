@@ -10,20 +10,24 @@ Check the readme on gitHub for more information. https://github.com/bschelske/CO
 This is the file that is meant to be run.
 """
 import os
+import sys
 import time
 import traceback
+
+# Allow running this file directly (python COUNT/main.py, or Run in PyCharm) as well as with python -m COUNT.main
+if __package__ in (None, ""):
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from COUNT import ui, tracking
 
 
 def main():
-    # Create UI and handle errors. Information from the UI is stored within the class-instance "app"
+    # Create UI. Information from the UI is stored within the class-instance "app"
     # This class is initiated in ui.py
-    try:
-        app = ui.create_ui()
-    except ValueError as e:
-        print("An error occurred in the UI:", e)
-        exit(1)
+    app = ui.create_ui()
+    if not app.confirmed:  # window closed without clicking Confirm
+        print("No files processed.")
+        return
 
     # Iterate through all input files (could be one file or many)
     for index, nd2_file in enumerate(app.files):
