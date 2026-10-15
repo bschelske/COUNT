@@ -1,12 +1,10 @@
 {
-  "canny_upper": 29,
-  "canny_lower": 0,
+    "canny_upper": 255,
+    "canny_lower": 85,
     "max_centroid_distance": 70,
-    "timeout": 5,
-    "flow_direction": "",
-    "background_subtraction": false,
-  "cell_min_radius": 6,
-  "cell_max_radius": 12,
+    "timeout": 20,
+    "cell_radius": 8,
+    "min_frames_tracked": 3,
     "save_overlay": false,
     "csv_save_path": "results/"
 }

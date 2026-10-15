@@ -1,12 +1,12 @@
-import json
 import os
+import json
 import tkinter as tk
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
+import cv2
+import numpy as np
 from pims import ND2Reader_SDK
-
-from COUNT import ui_preview  # Import the new preview module
-
+from COUNT import tracking
 """
 This code handles the creation of the user interface (UI).
 
@@ -16,7 +16,7 @@ The UI is used to gather parameters for the tracking.
 """
 
 
-class UserInterfaceApp:
+class ROISelectionApp:
     """Contains all information to begin tracking, collected in the user interface"""
 
     def __init__(self, master):
@@ -25,32 +25,29 @@ class UserInterfaceApp:
         self.SETTINGS_PATH = "settings.json"
         self.load_settings()
         self.file_path = ""
-        self.folder_path = tk.StringVar()
-        self.csv_folder_path = tk.StringVar(value=self.settings.get("csv_save_path"))
+        self.folder_path = tk.StringVar()  # Variable to store the selected folder path
+        self.csv_folder_path = tk.StringVar(value=self.settings.get("csv_save_path"))  # Default csv save path
         self.overlay_path = ""
-        self.debug = True
-
-        # Tracking Parameters
-        self.canny_upper = tk.IntVar(value=self.settings.get("canny_upper"))
-        self.canny_lower = tk.IntVar(value=self.settings.get("canny_lower"))
-        self.max_centroid_distance = tk.IntVar(value=self.settings.get("max_centroid_distance"))
-        self.timeout = tk.IntVar(value=self.settings.get("timeout"))
-        self.cell_max_radius = tk.IntVar(value=self.settings.get("cell_max_radius"))
-        self.cell_min_radius = tk.IntVar(value=self.settings.get("cell_min_radius"))
+        self.roi_height = tk.IntVar(value=2048)  # Default value for ROI Height
+        self.roi_width = tk.IntVar(value=2048)  # Default value for ROI Width
+        self.canny_upper = tk.IntVar(
+            value=self.settings.get("canny_upper"))  # Default value for upper canny threshold (3:1 ratio)
+        self.canny_lower = tk.IntVar(value=self.settings.get("canny_lower"))  # Default value for lower canny threshold
+        self.max_centroid_distance = tk.IntVar(
+            value=self.settings.get("max_centroid_distance"))  # max distance an object will travel between frames (px)
+        self.timeout = tk.IntVar(
+            value=self.settings.get("timeout"))  # How long before an object is considered lost (frames)
+        self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
+        # A cell must be detected in at least this many frames to be counted (shorter tracks are noise)
+        self.min_frames_tracked = tk.IntVar(
+            value=self.settings.get("min_frames_tracked", tracking.DEFAULT_MIN_FRAMES_TRACKED))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
-        self.flow_direction = tk.StringVar(value=self.settings.get("flow_direction"))
-        self.background_subtraction = tk.BooleanVar(value=self.settings.get("background_subtraction"))
-
-        # Initialize preview manager
-        self.preview_manager = ui_preview.PreviewManager(self)
-
-        # Create UI
-        self.files = []
+        self.flow_direction = tk.StringVar(value="Towards Right (--->)")
+        self.files = []  # Empty list that will accept an individual file, or files from a folder
         self.create_toolbar()
-        self.create_widgets()
+        self.create_widgets()  # This is the part of the UI you can see
 
     def create_toolbar(self):
-        """Create the menu bar"""
         menu = tk.Menu(self.master)
         self.master.config(menu=menu)
 
@@ -65,103 +62,93 @@ class UserInterfaceApp:
         help_.add_command(label='Help', command=self.help)
 
     def create_widgets(self):
-        """Makes the visual parts of the UI"""
+        """Makes the visual parts of the UI. Ignore unless changing position of UI elements"""
         justification = "w"
-
         # File selection button
-        tk.Label(self.master, text="For individual .nd2 file", anchor=justification).grid(
-            sticky="w", row=0, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For individual .nd2 file", anchor=justification).grid(sticky="w", row=0, column=0,
+                                                                                          padx=5, pady=5)
         self.file_button = tk.Button(self.master, text="Choose File", command=self.choose_file)
         self.file_button.grid(row=0, column=1, padx=5, pady=5)
 
         # Folder selection button
-        tk.Label(self.master, text="For .nd2 files in a folder", anchor=justification).grid(
-            sticky="w", row=1, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="For .nd2 files in a folder", anchor=justification).grid(sticky="w", row=1, column=0,
+                                                                                            padx=5, pady=5)
         self.folder_button = tk.Button(self.master, text="Choose Folder", command=self.choose_folder)
         self.folder_button.grid(row=1, column=1, padx=5, pady=5)
 
-        # CSV output folder selection button
-        tk.Label(self.master, text="Choose .csv save path", anchor=justification).grid(
-            sticky="w", row=0, column=2, padx=5, pady=5)
+        # csv output folder selection button
+        tk.Label(self.master, text="Choose .csv save path", anchor=justification).grid(sticky="w", row=0, column=2,
+                                                                                       padx=5, pady=5)
         self.csv_button = tk.Button(self.master, text="Choose Folder", command=self.choose_csv_output)
         self.csv_button.grid(row=0, column=3, padx=5, pady=5)
 
-        # Preview Edge Detection button
-        tk.Label(self.master, text="Visualize Edge Detection", anchor=justification).grid(
-            sticky="w", row=8, column=0, padx=5, pady=5)
-        self.edge_preview_button = tk.Button(self.master, text="Preview Detection",
-                                             command=self.preview_edge_detection)
+        # Preview Edge Dectection button
+        tk.Label(self.master, text="Visualize Edge Detection", anchor=justification).grid(sticky="w", row=8, column=0,
+                                                                                          padx=5, pady=5)
+        self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
         self.edge_preview_button.grid(row=8, column=1, padx=5, pady=5)
 
-        # Background Subtraction Check Box
-        self.background_subtraction_checkbox = tk.Checkbutton(
-            self.master, text="Background subtraction", variable=self.background_subtraction,
-            onvalue=True, offvalue=False)
-        self.background_subtraction_checkbox.grid(row=7, column=1, padx=5, pady=5)
+        # Flow direction
+        tk.Label(self.master, text="Flow direction", anchor=justification).grid(sticky="w", row=7, column=0, padx=5,
+                                                                                pady=5)
+        self.flow_direction_button = tk.OptionMenu(self.master, self.flow_direction,
+                                                 *["Towards Right (--->)", "Towards left (<---)"])
 
-        # Parameter input fields
-        self._create_parameter_fields()
+        self.flow_direction_button.grid(row=7, column=1, padx=5, pady=5)
 
-        # Action buttons
-        self._create_action_buttons()
-
-    def _create_parameter_fields(self):
-        """Create all the parameter input fields"""
         # Canny Upper input field
-        tk.Label(self.master, text="Canny Upper:", anchor="w").grid(
-            sticky="w", row=2, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Canny Upper:", anchor=justification).grid(sticky="w", row=2, column=0, padx=5,
+                                                                              pady=5)
         self.canny_upper_entry = tk.Entry(self.master, textvariable=self.canny_upper)
         self.canny_upper_entry.grid(row=2, column=1, padx=5, pady=5)
 
         # Canny Lower input field
-        tk.Label(self.master, text="Canny Lower:", anchor="w").grid(
-            sticky="w", row=3, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Canny Lower:", anchor=justification).grid(sticky="w", row=3, column=0, padx=5,
+                                                                              pady=5)
         self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
         self.canny_lower_entry.grid(row=3, column=1, padx=5, pady=5)
 
         # Max Centroid Distance input field
-        tk.Label(self.master, text="Max Centroid Distance (px):", anchor="w").grid(
-            sticky="w", row=4, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Max Centroid Distance (px):", anchor=justification).grid(sticky="w", row=4,
+                                                                                             column=0, padx=5, pady=5)
         self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
         self.max_centroid_distance_entry.grid(row=4, column=1, padx=5, pady=5)
 
         # Timeout threshold input field
-        tk.Label(self.master, text="Timeout Threshold (frames):", anchor="w").grid(
-            sticky="w", row=5, column=0, padx=5, pady=5)
+        tk.Label(self.master, text="Timeout Threshold (frames):", anchor=justification).grid(sticky="w", row=5,
+                                                                                             column=0, padx=5, pady=5)
         self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
         self.timeout_entry.grid(row=5, column=1, padx=5, pady=5)
 
-        # Cell radius input fields
-        tk.Label(self.master, text="Cell size exclusion, radii (min, max)", anchor="w").grid(
-            sticky="w", row=6, column=0, padx=5, pady=5)
-        self.cell_min_radius_entry = tk.Entry(self.master, textvariable=self.cell_min_radius)
-        self.cell_min_radius_entry.grid(row=6, column=1, padx=5, pady=5)
-        self.cell_max_radius_entry = tk.Entry(self.master, textvariable=self.cell_max_radius)
-        self.cell_max_radius_entry.grid(row=6, column=2, padx=5, pady=5)
+        # Expected Cell Radius input field
+        tk.Label(self.master, text="Expected Cell Radius (px):", anchor=justification).grid(sticky="w", row=6, column=0,
+                                                                                            padx=5, pady=5)
+        self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
+        self.cell_radius_entry.grid(row=6, column=1, padx=5, pady=5)
 
-    def _create_action_buttons(self):
-        """Create the action buttons at the bottom"""
+        # Minimum frames tracked input field
+        tk.Label(self.master, text="Min Frames to Count:", anchor=justification).grid(sticky="w", row=2, column=2,
+                                                                                      padx=5, pady=5)
+        self.min_frames_tracked_entry = tk.Entry(self.master, textvariable=self.min_frames_tracked)
+        self.min_frames_tracked_entry.grid(row=2, column=3, padx=5, pady=5)
+
         # Save overlay checkbox
-        self.save_overlay_checkbox = tk.Checkbutton(
-            self.master, text="Save Overlay?", variable=self.save_overlay,
-            onvalue=True, offvalue=False, command=self.on_checkbox_click)
+        self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
+                                                    onvalue=True, offvalue=False, command=self.on_checkbox_click)
         self.save_overlay_checkbox.grid(row=9, column=0, columnspan=1, padx=5, pady=5)
 
-        # Confirm button
-        self.confirm_button = tk.Button(self.master, text="      Confirm     ",
-                                        command=self.confirm_selections)
+        # Button to confirm selections
+        self.confirm_button = tk.Button(self.master, text="      Confirm     ", command=self.confirm_selections)
         self.confirm_button.grid(sticky="w", row=9, column=2, padx=1, pady=10)
 
         # Quit button
-        self.quit_button = tk.Button(self.master, text="        Quit        ",
-                                     command=self.quit_ui)
+        self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
         self.quit_button.grid(sticky="w", row=9, column=3, padx=1, pady=10)
 
-    # Settings management
     def choose_settings_file(self):
         self.SETTINGS_PATH = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])
         self.load_settings()
-        messagebox.showinfo("Settings", f"Settings loaded from:\n{self.SETTINGS_PATH}")
+        tk.messagebox.showinfo("Settings", f"Settings loaded from:\n{self.SETTINGS_PATH}")
 
     def load_settings(self):
         try:
@@ -169,82 +156,151 @@ class UserInterfaceApp:
                 self.settings = json.load(file)
         except FileNotFoundError:
             print("no settings.json found... using defaults")
-            self.settings = {
-                "canny_upper": 255, "canny_lower": 85, "max_centroid_distance": 70,
-                "timeout": 5, "flow_direction": "Towards Right (--->)",
-                "background_subtraction": True, "cell_min_radius": 2, "cell_max_radius": 6,
-                "save_overlay": False, "csv_save_path": "results/", "file_path": ""
-            }
+            self.settings = {"canny_upper": 255,
+                             "canny_lower": 85,
+                             "max_centroid_distance": 70,
+                             "timeout": 5,
+                             "cell_radius": 6,
+                             "min_frames_tracked": tracking.DEFAULT_MIN_FRAMES_TRACKED,
+                             "save_overlay": False,
+                             "csv_save_path": "results/"}
 
     def save_settings(self):
-        settings = {
-            "canny_upper": self.canny_upper.get(),
-            "canny_lower": self.canny_lower.get(),
-            "max_centroid_distance": self.max_centroid_distance.get(),
-            "timeout": self.timeout.get(),
-            "flow_direction": self.flow_direction.get(),
-            "background_subtraction": self.background_subtraction.get(),
-            "cell_min_radius": self.cell_min_radius.get(),
-            "cell_max_radius": self.cell_max_radius.get(),
-            "save_overlay": self.save_overlay.get(),
-            "csv_save_path": self.csv_folder_path.get(),
-            "file_path": self.file_path
-        }
+        settings = {"canny_upper": self.canny_upper.get(),
+                    "canny_lower": self.canny_lower.get(),
+                    "max_centroid_distance": self.max_centroid_distance.get(),
+                    "timeout": self.timeout.get(),
+                    "cell_radius": self.cell_radius.get(),
+                    "min_frames_tracked": self.min_frames_tracked.get(),
+                    "save_overlay": self.save_overlay.get(),
+                    "csv_save_path": self.csv_folder_path.get()
+                    }
         with open(self.SETTINGS_PATH, "w") as file:
             json.dump(settings, file, indent=4)
-        messagebox.showinfo("Settings", f"Settings saved to\n{self.SETTINGS_PATH}")
+        tk.messagebox.showinfo("Settings", f"Settings saved to\n{self.SETTINGS_PATH}")
 
-    # File handling
+    def help(self):
+        tk.messagebox.showinfo("Help", "no help here")
+
     def choose_file(self):
         self.file_path = filedialog.askopenfilename(filetypes=[("ND2 files", "*.nd2")])
         with ND2Reader_SDK(self.file_path) as nd2_file:
-            if 'm' in nd2_file.sizes.keys():
-                nd2_file.iter_axes = 'm'
-            self.total_frames = len(nd2_file)
-        print("Selection:", self.file_path, self.total_frames, "frames")
+            self.roi_width.set(nd2_file.metadata['width'])
+            self.roi_height.set(nd2_file.metadata['height'])
+        print("Selection:", self.file_path)
 
     def choose_folder(self):
-        self.folder_path.set(filedialog.askdirectory())
+        self.folder_path.set(filedialog.askdirectory())  # Set the selected folder path
         print("Selection:", self.folder_path.get())
 
     def choose_csv_output(self):
-        self.csv_folder_path.set(filedialog.askdirectory())
+        self.csv_folder_path.set(filedialog.askdirectory())  # Set the selected folder path
         print("csv save path:", self.csv_folder_path.get())
 
-    def input_handling(self):
-        """Handle folder vs file selection"""
-        if self.folder_path.get():
-            self.files = [os.path.join(self.folder_path.get(), f)
-                          for f in os.listdir(self.folder_path.get())]
-        if self.file_path:
-            self.files = [self.file_path]
-
-    # Event handlers
     def on_checkbox_click(self):
         if self.save_overlay.get() == 1:
             print("An overlay of tracked objects will be saved!")
 
-    def preview_edge_detection(self):
-        """Delegate to the preview manager"""
-        self.preview_manager.preview_edge_detection()
+    def input_handling(self):
+        # Handles if the selection was for a folder or a file.
+        if self.folder_path.get():
+            self.files = [os.path.join(self.folder_path.get(), f) for f in os.listdir(self.folder_path.get())]
+        if self.file_path:
+            self.files = [self.file_path]
 
     def confirm_selections(self):
+        self.error_handling()
         self.input_handling()
 
-        # Ensure output directories exist
+        # Ensure the output directory exists
         os.makedirs(self.csv_folder_path.get(), exist_ok=True)
-        os.makedirs(self.csv_folder_path.get() + "overlay/", exist_ok=True)
-        self.overlay_path = self.csv_folder_path.get() + "overlay/"
-        os.makedirs(self.csv_folder_path.get() + "final_results/", exist_ok=True)
-
+        self.overlay_path = os.path.join(self.csv_folder_path.get(), "overlay")
         if self.save_overlay.get():
-            print(f"\noverlay saving in {self.overlay_path}")
-        print(".csv results save path:", self.csv_folder_path.get())
+            os.makedirs(self.overlay_path, exist_ok=True)
+        os.makedirs(os.path.join(self.csv_folder_path.get(), "final_results"), exist_ok=True)
 
+        print(".csv results save path:", self.csv_folder_path.get())
+        # Close the Tkinter window
         self.master.destroy()
 
-    def help(self):
-        messagebox.showinfo("Help", "no help here")
+    def error_handling(self):
+        # if self.file_path == '' and self.folder_path.get() == '':
+        #     raise ValueError("No file selected!")
+        if self.file_path and self.folder_path.get():
+            raise ValueError(
+                "...Why did you pick a file AND a folder? Choose ONE or the OTHER. What did you expect to happen? :)")
+
+
+    def get_roi(self):
+        ROI = (self.roi_x.get(), self.roi_y.get(), self.roi_height.get(), self.roi_width.get())
+        return ROI
+
+    def preview_edge_detection(self):
+        """This method is incredibly jank"""
+
+        # Error handling
+        if self.file_path == '' and self.folder_path.get() == '':
+            print("Choose a file first!")
+        else:
+            self.input_handling()
+
+
+        # Get frames
+        frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
+        # Display images
+        cv2.namedWindow('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WINDOW_NORMAL)
+        cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])
+
+        while True:
+            # Check if the window is still open
+            if cv2.getWindowProperty('Try pressing "4" or "5" "ESC" to change settings/quit', cv2.WND_PROP_VISIBLE) < 1:
+                break  # Exit loop if the window is closed
+
+            k = cv2.waitKey(0) & 0xFF  # Wait indefinitely for a key press
+            if k == 53:  # Key code 5
+                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[1])  # Display the 2nd frame
+            elif k == 52:  # Key code 4
+                cv2.imshow('Try pressing "4" or "5" "ESC" to change settings/quit', frames[0])  # Display the 1st frame
+            elif k == 27:  # ESC key
+                break
+
+    def edge_detection_handling(self, frame_index):
+        """Edge detection for UI preview"""
+        backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
+        with ND2Reader_SDK(self.files[0]) as nd2_file:
+            if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
+                nd2_file.iter_axes = 'm'
+            # MOG2 Background Method:
+            for frame in nd2_file[:frame_index + 1]:  # First five frames to calculate background
+                frame = cv2.normalize(frame, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+                foreground_mask = backSub.apply(frame)
+
+            # Get current frame
+            frame = nd2_file[frame_index]
+            frame_copy = frame.copy()  # Copy for overlay later...
+            frame_copy = cv2.normalize(frame_copy, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            frame_copy = cv2.cvtColor(frame_copy, cv2.COLOR_GRAY2BGR)
+
+            # Do background subtraction, and normalize for canny
+            normalized_frame = cv2.normalize(foreground_mask, None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+            # Morphological operation to reduce noise
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+            normalized_frame = cv2.morphologyEx(normalized_frame, cv2.MORPH_OPEN, kernel)
+            canny_img = cv2.Canny(normalized_frame, self.canny_lower.get(), self.canny_upper.get(), 3)
+            contours, hierarchy = cv2.findContours(canny_img, mode=cv2.RETR_EXTERNAL, method=cv2.CHAIN_APPROX_SIMPLE)
+
+            _, contours = tracking.remove_overlapped_objects(normalized_frame, contours, self.cell_radius.get())
+            total_contours = len(contours)
+            for index, cnt in enumerate(contours):
+                x, y, w, h = cv2.boundingRect(cnt)
+                if (w > self.cell_radius.get() * 10) or (h > self.cell_radius.get() * 10):
+                    total_contours -= 1
+                else:
+                    cv2.drawContours(frame_copy, [cnt], 0, (0, 0, 255), 2)
+
+            cv2.putText(frame_copy, str(f"Frame {frame_index + 1} Objects: {len(contours)}"), (10, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+        return frame_copy
 
     def quit_ui(self):
         self.master.destroy()
@@ -255,6 +311,6 @@ def create_ui():
     root = tk.Tk()
     root.iconbitmap(r'count.ico')
     root.title("Count Objects Until No Tomorrow (C.O.U.N.T.)")
-    app = UserInterfaceApp(root)
+    app = ROISelectionApp(root)
     root.mainloop()
     return app
