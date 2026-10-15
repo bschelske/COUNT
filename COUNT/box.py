@@ -194,7 +194,7 @@ def main():
         temp_file_path = download_file_from_box(client, file_id)
         try:
             # COUNT onto downloaded temp file
-            object_final_position, active_id_trajectory = tracking.nd2_mog_contours(temp_file_path, app)
+            object_final_position = tracking.nd2_mog_contours(temp_file_path, app)
             tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
 
         finally:
@@ -212,7 +212,7 @@ def main():
                 temp_file_path = download_file_from_box(client, item.id)  # temp download the nd2 file
                 try:
                     # COUNT onto downloaded temp file
-                    object_final_position, active_id_trajectory = tracking.nd2_mog_contours(temp_file_path, app)
+                    object_final_position = tracking.nd2_mog_contours(temp_file_path, app)
                     tracking.export_to_csv(object_final_position, f"results/{file_info.name[:-4]}.csv")
 
                 finally:

@@ -38,6 +38,9 @@ class ROISelectionApp:
         self.timeout = tk.IntVar(
             value=self.settings.get("timeout"))  # How long before an object is considered lost (frames)
         self.cell_radius = tk.IntVar(value=self.settings.get("cell_radius"))
+        # A cell must be detected in at least this many frames to be counted (shorter tracks are noise)
+        self.min_frames_tracked = tk.IntVar(
+            value=self.settings.get("min_frames_tracked", tracking.DEFAULT_MIN_FRAMES_TRACKED))
         self.save_overlay = tk.BooleanVar(value=self.settings.get("save_overlay"))
         self.flow_direction = tk.StringVar(value="Towards Right (--->)")
         self.files = []  # Empty list that will accept an individual file, or files from a folder
@@ -123,6 +126,12 @@ class ROISelectionApp:
         self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
         self.cell_radius_entry.grid(row=6, column=1, padx=5, pady=5)
 
+        # Minimum frames tracked input field
+        tk.Label(self.master, text="Min Frames to Count:", anchor=justification).grid(sticky="w", row=2, column=2,
+                                                                                      padx=5, pady=5)
+        self.min_frames_tracked_entry = tk.Entry(self.master, textvariable=self.min_frames_tracked)
+        self.min_frames_tracked_entry.grid(row=2, column=3, padx=5, pady=5)
+
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
                                                     onvalue=True, offvalue=False, command=self.on_checkbox_click)
@@ -152,6 +161,7 @@ class ROISelectionApp:
                              "max_centroid_distance": 70,
                              "timeout": 5,
                              "cell_radius": 6,
+                             "min_frames_tracked": tracking.DEFAULT_MIN_FRAMES_TRACKED,
                              "save_overlay": False,
                              "csv_save_path": "results/"}
 
@@ -161,6 +171,7 @@ class ROISelectionApp:
                     "max_centroid_distance": self.max_centroid_distance.get(),
                     "timeout": self.timeout.get(),
                     "cell_radius": self.cell_radius.get(),
+                    "min_frames_tracked": self.min_frames_tracked.get(),
                     "save_overlay": self.save_overlay.get(),
                     "csv_save_path": self.csv_folder_path.get()
                     }
@@ -203,9 +214,10 @@ class ROISelectionApp:
 
         # Ensure the output directory exists
         os.makedirs(self.csv_folder_path.get(), exist_ok=True)
-        os.makedirs(self.csv_folder_path.get() + "overlay/", exist_ok=True)
-        self.overlay_path = self.csv_folder_path.get() + "overlay/"
-        os.makedirs(self.csv_folder_path.get() + "final_results/", exist_ok=True)
+        self.overlay_path = os.path.join(self.csv_folder_path.get(), "overlay")
+        if self.save_overlay.get():
+            os.makedirs(self.overlay_path, exist_ok=True)
+        os.makedirs(os.path.join(self.csv_folder_path.get(), "final_results"), exist_ok=True)
 
         print(".csv results save path:", self.csv_folder_path.get())
         # Close the Tkinter window

@@ -31,15 +31,15 @@ def main():
 
         try:
             # Get the filename without extension
-            file_name = os.path.basename(nd2_file)[:-4]
+            file_name = os.path.splitext(os.path.basename(nd2_file))[0]
 
             # Track the nd2 file using MOG2 background subtraction
-            object_final_position, active_id_trajectory = tracking.nd2_mog_contours(nd2_file, app)
+            counted_objects = tracking.nd2_mog_contours(nd2_file, app)
 
             csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
             trajectory_csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_trajectory_results.csv")
-            tracking.export_to_csv(object_final_position, csv_filename)
-            tracking.export_trajectories_to_csv(active_id_trajectory, trajectory_csv_filename)
+            tracking.export_to_csv(counted_objects, csv_filename)
+            tracking.export_trajectories_to_csv(counted_objects.values(), trajectory_csv_filename)
 
         except Exception as e:
             print(f"Error processing file {nd2_file}: {e}")
