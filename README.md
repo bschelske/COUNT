@@ -101,6 +101,15 @@ python tools/make_synthetic_videos.py synthetic_videos
 ```
 It makes three 8-bit AVI videos (12 cells each): `synth_easy_10kHz` (slow, well spaced), `synth_fast_50kHz` (cells crossing the image in 13-15 frames) and `synth_crowded_100kHz` (cells close together, side by side, pausing, and briefly out of focus). Run COUNT on the folder with the default settings and compare each `<file>_results.csv` with its `<file>_answer_key.csv`. To also test ND2 reading, convert an AVI in NIS-Elements (open it, then **File → Save As** `.nd2`).
 
+## Checking COUNT Against Hand Counts
+Put the hand counts in each video's file name, as a number before `nDEP` (bottom outlet) and a number before `pDEP` (top outlet), for example `10V_50kHz_84nDEP_13pDEP.avi`. Then run:
+```
+python tools/validate_counts.py "D:/COUNT test data"
+```
+This runs COUNT with the settings in `COUNT/settings.json` on every video in the folder and prints its counts next to the hand counts. Add `--sweep` to also try 576 combinations of settings and list the ones closest to the hand counts (each video is still only read once). All results are saved to `validation_results.csv`.
+
+With only a few hand-counted videos, the best-scoring settings may be tuned to those videos in particular, so check new settings on a video that wasn't used to choose them.
+
 ## Running the Tests
 From the repository folder:
 ```
