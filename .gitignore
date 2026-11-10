@@ -2,3 +2,5 @@
 /ignore/
 /analysis/
 .env
+__pycache__/
+*.pyc

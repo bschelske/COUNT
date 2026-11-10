@@ -3,26 +3,33 @@
 T R A C K I N G
 ===================
 This is where most of the work is done. The main.py file will run this code using instructions from the UI.
-
-General tracking strategy:
-    Import ND2 file and perform MOG2 background subtraction
-        (the background model is first primed with the opening frames, then tracking starts at frame 0)
-    Use canny edge detection on background subtracted frames to generate contours
-    Track contours through time: each frame, every detection is paired with at most one existing track
-    (and every track with at most one detection), nearest pairs first, measured from where each track
-    is predicted to be given its last velocity
+Input files can be Nikon .nd2 files or .avi videos.
 
 Device assumptions:
-    Cells flow from left to right
-    Two outlets on the right side of the image, split at the vertical middle of the image
+    Cells flow from left to right through the channel.
+    The channel splits into two outlets on the right of the image, at the outlet divider.
         Top outlet: positive DEP response (DEP_response = True)
         Bottom outlet: no positive DEP response (DEP_response = False)
-    A cell's outlet is decided by the centre of its last detected position
 
-Counting:
-    A track is counted once it has been detected in at least `min_frames_tracked` frames.
-    Shorter tracks are treated as noise and discarded.
-    A track that is not seen for more than `timeout` frames is closed.
+How cells are found (compare each image with its neighbours):
+    For every image, a background is made from the median of the `background_window` images on either side
+    of it. Anything that stays in place for that long (dust, cells stuck to the device, the electrodes) is
+    part of the background, so it disappears when the background is subtracted. What is left are moving
+    specks: places where the image differs from its background by more than `detection_threshold` grey
+    levels, with an area between `min_area` and `max_area` pixels.
+
+How cells are tracked:
+    Each image, every speck is paired with at most one existing track (and every track with at most one
+    speck), closest pairs first, measured from where each track is predicted to be given its last velocity.
+    A track can move at most `max_centroid_distance` pixels from that prediction between images, and is
+    closed after `timeout` images without a match.
+
+How cells are counted:
+    A cell is counted once, when its track crosses the vertical counting line (x = `count_line_x`) moving
+    right and it has been detected in at least `min_detections` images (so two noise specks that happen to
+    line up either side of the line are not counted). If it crosses above the outlet divider
+    (y < `outlet_divider_y`) it is going to the top outlet (pDEP), otherwise to the bottom outlet (nDEP).
+    Tracks that never cross the line (cells held on the electrodes, noise) are not counted.
 
 If you decide to save overlays, you'll get a .png per frame in the overlay folder.
     hint: ffmpeg
@@ -30,6 +37,8 @@ If you decide to save overlays, you'll get a .png per frame in the overlay folde
 Read more:
 https://github.com/bschelske/COUNT
 """
+import collections
+import contextlib
 import csv
 import os
 import typing
@@ -38,8 +47,101 @@ import cv2 as cv
 import numpy as np
 from tqdm import tqdm
 
-DEFAULT_MIN_FRAMES_TRACKED = 3
-BACKGROUND_PRIMING_FRAMES = 30  # frames used to learn the background before tracking starts
+# Default value for every tracking setting. COUNT/settings.json and the settings window override these.
+DEFAULT_SETTINGS = {
+    "background_window": 10,      # images on each side used to build each image's background
+    "detection_threshold": 8,     # grey levels a speck must differ from its background by
+    "min_area": 6,                # smallest speck counted as a cell (pixels)
+    "max_area": 600,              # largest speck counted as a cell (pixels)
+    "max_centroid_distance": 100,  # furthest a cell can move between images (pixels, from its predicted spot)
+    "timeout": 3,                 # images a track can go undetected before it is closed
+    "cell_radius": 8,             # how far a cell may jitter left between images and still match (pixels)
+    "min_detections": 3,          # a cell must be detected in at least this many images to be counted
+    "count_line_x": 0,            # x of the counting line (pixels); 0 = three quarters of the image width
+    "outlet_divider_y": 0,        # y of the outlet divider (pixels); 0 = the middle of the image
+}
+VIDEO_EXTENSIONS = (".nd2", ".avi")  # file types COUNT can track
+
+
+def is_supported_video(path: str) -> bool:
+    return path.lower().endswith(VIDEO_EXTENSIONS)
+
+
+class AviReader:
+    """
+    The frames of an AVI file as greyscale images, indexed by frame number like an ND2 reader.
+
+    Frames are decoded in order, which is how COUNT reads them; asking for an earlier frame reopens the file.
+    """
+
+    def __init__(self, path: str):
+        self.path = path
+        capture = cv.VideoCapture(path)
+        if not capture.isOpened():
+            raise IOError(f"Could not open video file {path}")
+        # Count frames by skipping through the file: the frame count stored in an AVI header can be wrong
+        self._length = 0
+        while capture.grab():
+            self._length += 1
+        capture.release()
+        self._capture = None
+        self._next_frame = 0
+        self._open()
+
+    def _open(self):
+        if self._capture is not None:
+            self._capture.release()
+        self._capture = cv.VideoCapture(self.path)
+        self._next_frame = 0
+
+    def __len__(self):
+        return self._length
+
+    def __getitem__(self, index: int):
+        if index < 0:
+            index += self._length
+        if not 0 <= index < self._length:
+            raise IndexError(f"frame {index} is outside {self.path} ({self._length} frames)")
+        if index < self._next_frame:
+            self._open()
+        while self._next_frame < index:  # skip ahead without decoding
+            self._capture.grab()
+            self._next_frame += 1
+        ok, frame = self._capture.read()
+        if not ok:
+            raise IOError(f"Could not read frame {index} of {self.path}")
+        self._next_frame += 1
+        if frame.ndim == 3:
+            frame = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+        return frame
+
+    def close(self):
+        if self._capture is not None:
+            self._capture.release()
+            self._capture = None
+
+
+@contextlib.contextmanager
+def open_video(path: str):
+    """
+    Open an .nd2 or .avi file. Use as `with open_video(path) as frames:`; `frames[i]` is frame i as a
+    greyscale image and `len(frames)` is the number of frames.
+    """
+    extension = os.path.splitext(path)[1].lower()
+    if extension == ".avi":
+        reader = AviReader(path)
+        try:
+            yield reader
+        finally:
+            reader.close()
+    elif extension == ".nd2":
+        from pims import ND2Reader_SDK  # imported here so AVI files and the tests work without the Nikon SDK
+        with ND2Reader_SDK(path) as reader:
+            if 'm' in reader.sizes.keys():  # new nikon weirdness
+                reader.iter_axes = 'm'
+            yield reader
+    else:
+        raise ValueError(f"Unsupported file type {extension!r} ({path}). COUNT reads .nd2 and .avi files.")
 
 
 class DetectedObject:
@@ -50,21 +152,25 @@ class DetectedObject:
     ----------
     object_id : int
         A unique identifier for the object (None until it is matched or added as a new track).
-    position : Tuple[int, int]
+    position : Tuple[float, float]
         The (x, y) top-left corner of the object's bounding box in its most recent frame.
-    size : Tuple[int, int]
+    size : Tuple[float, float]
         The (w, h) size of the bounding box in its most recent frame.
     most_recent_frame : int
         The most recent frame number where the object was detected.
     DEP_outlet : bool
-        True: object left through the top outlet (positive DEP). False: bottom outlet.
-        Decided from the centre of the object's last position.
+        True: the cell crossed the counting line above the outlet divider (top outlet, positive DEP).
+        False: below it (bottom outlet). '' until the cell is counted.
     frames_tracked : int
         The number of frames in which the object was detected.
-    position_history : Dict[int, Tuple[int, int]]
-        {frame_number: (x, y)} for every frame the object was detected in.
+    position_history : Dict[int, Tuple[float, float]]
+        {frame_number: (x, y)} top-left corner for every frame the object was detected in.
+    center_history : Dict[int, Tuple[float, float]]
+        {frame_number: (x, y)} centre for every frame the object was detected in.
     velocity : Tuple[float, float]
         Centre displacement per frame between the last two detections ((0, 0) until it has been seen twice).
+    count_frame, count_y :
+        The frame in which the cell crossed the counting line and the y where it crossed (None until counted).
     """
 
     def __init__(self, object_id, position, size, most_recent_frame):
@@ -75,7 +181,10 @@ class DetectedObject:
         self.DEP_outlet = ''
         self.frames_tracked = 1
         self.position_history = {self.most_recent_frame: self.position}
+        self.center_history = {self.most_recent_frame: self.center()}
         self.velocity = (0.0, 0.0)
+        self.count_frame = None
+        self.count_y = None
 
     def center(self) -> typing.Tuple[float, float]:
         return self.position[0] + self.size[0] / 2, self.position[1] + self.size[1] / 2
@@ -96,10 +205,19 @@ class DetectedObject:
         self.most_recent_frame = frame_number
         self.frames_tracked += 1
         self.position_history[frame_number] = detection.position
+        self.center_history[frame_number] = detection.center()
 
-    def outlet_assignment(self, image_h: int) -> None:
-        """Top half of the image = top outlet = positive DEP response."""
-        self.DEP_outlet = self.center()[1] < image_h / 2
+    def line_crossing(self, line_x: float) -> typing.Optional[typing.Tuple[int, float]]:
+        """
+        If this track has crossed the vertical line x = line_x moving right, return (frame, y) for the first
+        crossing: the frame of the first detection past the line, and the y where the track crossed it.
+        Otherwise None.
+        """
+        points = sorted(self.center_history.items())
+        for (_, (x0, y0)), (frame, (x1, y1)) in zip(points, points[1:]):
+            if x0 < line_x <= x1:
+                return frame, y0 + (y1 - y0) * (line_x - x0) / (x1 - x0)
+        return None
 
 
 def calculate_distance(detected_object1: DetectedObject, detected_object2: DetectedObject) -> float:
@@ -150,23 +268,46 @@ def match_detections(tracks: typing.Dict[int, DetectedObject], detections: typin
 
 
 class Tracker:
-    """Keeps the active tracks for one video and decides which ones are counted."""
+    """
+    Links moving specks into tracks and counts each track once, when it crosses the counting line.
 
-    def __init__(self, image_h: int, max_centroid_distance: float, timeout: int,
-                 min_frames_tracked: int = DEFAULT_MIN_FRAMES_TRACKED, backtrack_tolerance: float = 0):
-        self.image_h = image_h
+    `counted` holds every counted cell ({object_id: DetectedObject}); `counted_this_frame` lists the cells
+    counted in the most recent update (used to draw overlays).
+    """
+
+    def __init__(self, count_line_x: float, outlet_divider_y: float, max_centroid_distance: float, timeout: int,
+                 backtrack_tolerance: float = 0, min_detections: int = 2):
+        self.count_line_x = count_line_x
+        self.min_detections = max(2, min_detections)
+        self.outlet_divider_y = outlet_divider_y
         self.max_centroid_distance = max_centroid_distance
         self.timeout = timeout
-        self.min_frames_tracked = min_frames_tracked
         self.backtrack_tolerance = backtrack_tolerance
         self.active = {}  # {object_id: DetectedObject} tracks that may still receive detections
-        self.counted = {}  # {object_id: DetectedObject} closed tracks that count as cells
+        self.counted = {}  # {object_id: DetectedObject} cells that crossed the counting line
+        self.counted_this_frame = []
         self.next_id = 1
 
     def update(self, detections: typing.List[DetectedObject], frame_number: int) -> None:
-        self._close_lost_tracks(frame_number)
+        for track_id, track in list(self.active.items()):
+            if (frame_number - track.most_recent_frame) > self.timeout:
+                del self.active[track_id]
         unmatched = match_detections(self.active, detections, frame_number, self.max_centroid_distance,
                                      self.backtrack_tolerance)
+
+        self.counted_this_frame = []
+        for track_id, track in self.active.items():
+            if (track_id in self.counted or track.most_recent_frame != frame_number
+                    or track.frames_tracked < self.min_detections):
+                continue
+            crossing = track.line_crossing(self.count_line_x)
+            if crossing is not None:
+                track.count_frame, y = crossing
+                track.count_y = y
+                track.DEP_outlet = bool(y < self.outlet_divider_y)
+                self.counted[track_id] = track
+                self.counted_this_frame.append(track)
+
         for detection in unmatched:
             detection.object_id = self.next_id
             detection.most_recent_frame = frame_number
@@ -174,166 +315,197 @@ class Tracker:
             self.next_id += 1
 
     def finish(self) -> typing.Dict[int, DetectedObject]:
-        """Close every remaining track (end of video) and return the counted objects."""
-        for track_id in list(self.active):
-            self._close(track_id)
+        """End of the video: return the counted cells."""
+        self.active = {}
         return self.counted
 
-    def counted_so_far(self) -> int:
-        """Closed tracks that counted, plus active tracks that are already long enough to count."""
-        return len(self.counted) + sum(1 for t in self.active.values()
-                                       if t.frames_tracked >= self.min_frames_tracked)
-
-    def _close_lost_tracks(self, frame_number: int) -> None:
-        for track_id, track in list(self.active.items()):
-            if (frame_number - track.most_recent_frame) > self.timeout:
-                self._close(track_id)
-
-    def _close(self, track_id: int) -> None:
-        track = self.active.pop(track_id)
-        if track.frames_tracked >= self.min_frames_tracked:
-            track.outlet_assignment(self.image_h)
-            self.counted[track_id] = track
+    def outlet_counts(self) -> typing.Tuple[int, int]:
+        """(bottom outlet / nDEP, top outlet / pDEP) cells counted so far."""
+        top = sum(1 for cell in self.counted.values() if cell.DEP_outlet is True)
+        return len(self.counted) - top, top
 
 
 def _setting(ui_app, name, default=None):
-    """Read a tkinter variable from the UI, or fall back to a default if the UI doesn't have it."""
+    """Read a setting from the UI (a tkinter variable), falling back to COUNT's default."""
+    if default is None:
+        default = DEFAULT_SETTINGS.get(name)
     variable = getattr(ui_app, name, None)
     return variable.get() if variable is not None else default
 
 
-def prime_background(backSub, frames, n_frames, n_samples=BACKGROUND_PRIMING_FRAMES):
+def count_line_and_divider(ui_app, image_shape) -> typing.Tuple[float, float]:
+    """The counting line's x and the outlet divider's y in pixels (0 in the settings = automatic)."""
+    height, width = image_shape[:2]
+    line_x = _setting(ui_app, "count_line_x") or width * 3 / 4
+    divider_y = _setting(ui_app, "outlet_divider_y") or height / 2
+    return line_x, divider_y
+
+
+def to_8bit(frame, scale: typing.Optional[typing.Tuple[float, float]]):
     """
-    Teach the background subtractor what the channel looks like before tracking starts.
-
-    MOG2 needs a few dozen frames before its foreground mask is reliable; until then it marks noise as
-    foreground (which becomes short noise tracks) and misses real cells. Running it over the first
-    `n_samples` frames once, before going back to frame 0 to track, means detection works from the start.
-    (Sampling frames spread across the whole video was tested and gave far more false detections.)
-    `frames` is anything indexable by frame number (e.g. an ND2 reader).
+    Convert a frame to 8-bit greyscale with a fixed (low, high) intensity range, so brightness is comparable
+    between frames. 8-bit frames are returned unchanged.
     """
-    for index in range(min(n_samples, n_frames)):
-        backSub.apply(cv.normalize(frames[index], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
+    if frame.dtype == np.uint8:
+        return frame
+    low, high = scale
+    return np.clip((frame.astype(np.float32) - low) * (255.0 / (high - low)), 0, 255).astype(np.uint8)
 
 
-def find_cell_contours(foreground_mask, canny_lower, canny_upper, cell_radius):
-    """Edge-detect the background-subtracted mask and return contours that are plausibly single cells."""
-    normalized_frame = cv.normalize(foreground_mask, None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-    # Morphological operation to reduce noise
-    kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, (3, 3))
-    cleaned_frame = cv.morphologyEx(normalized_frame, cv.MORPH_OPEN, kernel)
-    canny_img = cv.Canny(cleaned_frame, canny_lower, canny_upper, apertureSize=3)
-    contours, _ = cv.findContours(canny_img, mode=cv.RETR_EXTERNAL, method=cv.CHAIN_APPROX_SIMPLE)
-    _, contours = remove_overlapped_objects(normalized_frame, contours, cell_radius)
-
-    max_size = cell_radius * 10
-    kept = []
-    for cnt in contours:
-        _, _, w, h = cv.boundingRect(cnt)
-        if w <= max_size and h <= max_size:
-            kept.append(cnt)
-    return kept
+def intensity_scale(frame) -> typing.Optional[typing.Tuple[float, float]]:
+    """The (low, high) range used to convert every frame of a video with more than 8 bits to 8-bit."""
+    if frame.dtype == np.uint8:
+        return None
+    low, high = np.percentile(frame, (0.01, 99.99))
+    if high - low < 1:
+        low, high = float(frame.min()), float(frame.max())
+    if high - low < 1:
+        high = low + 1
+    return float(low), float(high)
 
 
-def detect_objects(frame_data, frame_index, backSub_mask, ui_app):
+def find_moving_specks(frame, background, detection_threshold, min_area, max_area):
     """
-    Find cells in one frame.
+    Specks that differ from their background: a list of (centre_x, centre_y, width, height, area, contrast).
 
-    Returns (objects, contours): a DetectedObject per cell and the matching contours (for drawing overlays).
-    If background subtraction found no motion in this frame, nothing is detected.
+    `frame` is an 8-bit image and `background` an image of the same size. Anything also present in the
+    background (because it stayed in place) is not found. The difference is kept in fractions of a grey level
+    (not rounded), so faint cells just above the threshold are not lost.
     """
-    if not backSub_mask.any():
-        return [], []
-
-    contours = find_cell_contours(backSub_mask, ui_app.canny_lower.get(), ui_app.canny_upper.get(),
-                                  ui_app.cell_radius.get())
-    objects = []
-    for cnt in contours:
-        x, y, w, h = cv.boundingRect(cnt)
-        objects.append(DetectedObject(object_id=None, position=(x, y), size=(w, h), most_recent_frame=frame_index))
-    return objects, contours
-
-
-def remove_overlapped_objects(frame_copy, contours, cell_radius):
-    mask = np.zeros(frame_copy.shape[:2], dtype=np.uint8)
-
-    # Draw filled contours on a mask using bounding circles
-    for cnt in contours:
-        (x, y), radius = cv.minEnclosingCircle(cnt)
-        center = (int(x), int(y))
-        radius = int(radius + cell_radius)
-        cv.circle(mask, center, radius, (255), -1)
-    # return contours detected on overlapped objects
-    contours, hierarchy = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
-    return frame_copy, contours
+    difference = cv.absdiff(frame.astype(np.float32), background.astype(np.float32))
+    difference = cv.GaussianBlur(difference, (5, 5), 0)
+    mask = (difference > detection_threshold).astype(np.uint8)
+    n, labels, stats, centroids = cv.connectedComponentsWithStats(mask)
+    specks = []
+    for label in range(1, n):
+        x, y, w, h, area = stats[label]
+        if min_area <= area <= max_area:
+            contrast = float(difference[y:y + h, x:x + w].max())
+            specks.append((float(centroids[label][0]), float(centroids[label][1]), int(w), int(h), int(area),
+                           contrast))
+    return specks
 
 
-def draw_overlay(frame_8u, contours, tracker: Tracker, frame_number: int, objects_in_frame: int):
-    """Return a colour copy of the frame with contours, the outlet dividing line, track IDs and counts."""
+def median_background(neighbours):
+    """Per-pixel median of a list of 8-bit images, as float32 (the average of the two middle values for an even
+    count)."""
+    stack = np.stack(neighbours)
+    middle = (len(neighbours) - 1) // 2
+    if len(neighbours) % 2:
+        return np.partition(stack, middle, axis=0)[middle].astype(np.float32)
+    ordered = np.partition(stack, (middle, middle + 1), axis=0)
+    return (ordered[middle].astype(np.float32) + ordered[middle + 1]) / 2
+
+
+def backgrounds_by_frame(frames, n_frames: int, background_window: int, scale=None, indices=None):
+    """
+    For each frame (all, or just `indices`), yield (frame_number, 8-bit frame, background), where background
+    is the median of the `background_window` frames on either side of it (None for a one-frame video).
+    Frames are read in order and each is read once.
+    """
+    if scale is None and n_frames:
+        scale = intensity_scale(frames[0])
+    wanted = range(n_frames) if indices is None else sorted(set(indices))
+    cache = collections.OrderedDict()
+
+    def frame(j):
+        if j not in cache:
+            cache[j] = to_8bit(frames[j], scale)
+        return cache[j]
+
+    for i in wanted:
+        lo, hi = max(0, i - background_window), min(n_frames, i + background_window + 1)
+        for j in [j for j in cache if j < lo]:
+            del cache[j]
+        current = frame(i)
+        neighbours = [frame(j) for j in range(lo, hi) if j != i]
+        yield i, current, (median_background(neighbours) if neighbours else None)
+
+
+def moving_specks_by_frame(frames, n_frames: int, background_window: int, detection_threshold: float,
+                           min_area: int, max_area: int, scale=None, indices=None):
+    """
+    For each frame (all, or just `indices`), yield (frame_number, 8-bit frame, specks) where specks are the
+    moving specks found by comparing the frame with the median of the `background_window` frames on either
+    side of it.
+    """
+    for i, current, background in backgrounds_by_frame(frames, n_frames, background_window, scale, indices):
+        specks = [] if background is None else find_moving_specks(current, background, detection_threshold,
+                                                                  min_area, max_area)
+        yield i, current, specks
+
+
+def specks_to_objects(specks, frame_number: int) -> typing.List[DetectedObject]:
+    return [DetectedObject(object_id=None, position=(cx - w / 2, cy - h / 2), size=(w, h),
+                           most_recent_frame=frame_number) for cx, cy, w, h, _, _ in specks]
+
+
+def draw_overlay(frame_8u, specks, tracker: typing.Optional[Tracker], frame_number: int, count_line_x: float,
+                 outlet_divider_y: float):
+    """
+    A colour copy of the frame showing the counting line (blue), the outlet divider (grey), every moving speck
+    (orange), cells counted in this frame (green = top/pDEP, pink = bottom/nDEP) and the running counts.
+    """
     overlay = cv.cvtColor(frame_8u, cv.COLOR_GRAY2BGR)
-    image_h, image_w = overlay.shape[:2]
+    height, width = overlay.shape[:2]
+    s = max(1, round(width / 1024))  # line thickness / font scale for the image size
+    line_x, divider_y = int(round(count_line_x)), int(round(outlet_divider_y))
 
-    # Dividing line between the top (DEP) and bottom (no DEP) outlets
-    cv.line(overlay, (0, image_h // 2), (image_w - 1, image_h // 2), (128, 128, 128), 1)
-    cv.drawContours(overlay, contours, -1, (0, 0, 255), 2)
+    cv.line(overlay, (line_x, 0), (line_x, height - 1), (255, 200, 0), s)
+    cv.line(overlay, (line_x, divider_y), (width - 1, divider_y), (160, 160, 160), s)
+    for cx, cy, w, h, _, _ in specks:
+        cv.circle(overlay, (int(cx), int(cy)), 8 * s, (0, 165, 255), s)
 
-    # Label tracks that were seen in this frame and are long enough to count
-    for object_id, track in tracker.active.items():
-        if track.most_recent_frame == frame_number and track.frames_tracked >= tracker.min_frames_tracked:
-            x, y = track.position
-            cv.putText(overlay, str(object_id), (int(x), max(int(y) - 4, 12)), cv.FONT_HERSHEY_SIMPLEX, 0.5,
-                       (0, 255, 255), 1, cv.LINE_AA)
-
-    cv.putText(overlay, f"Frame: {frame_number}  In-Frame: {objects_in_frame}  Counted: {tracker.counted_so_far()}",
-               (10, 30), cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv.LINE_AA)
+    header = f"Frame {frame_number}   moving specks: {len(specks)}"
+    if tracker is not None:
+        for cell in tracker.counted_this_frame:
+            colour = (0, 255, 0) if cell.DEP_outlet else (255, 0, 255)
+            cv.circle(overlay, (line_x, int(cell.count_y)), 16 * s, colour, 2 * s)
+            x, y = cell.center()
+            cv.circle(overlay, (int(x), int(y)), 10 * s, colour, s)
+        bottom, top = tracker.outlet_counts()
+        header += f"   counted  nDEP (bottom): {bottom}   pDEP (top): {top}"
+    cv.rectangle(overlay, (0, 0), (width - 1, 22 * s), (0, 0, 0), -1)
+    cv.putText(overlay, header, (6 * s, 16 * s), cv.FONT_HERSHEY_SIMPLEX, 0.5 * s, (255, 255, 255), s, cv.LINE_AA)
     return overlay
 
 
-def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObject]:
+def count_cells(video_path: str, ui_app) -> typing.Dict[int, DetectedObject]:
     """
-    Process ND2 file to detect and track objects across frames.
+    Count the cells in an ND2 or AVI file.
 
     Args:
-        nd2_file_path (str): Path to the ND2 file.
+        video_path (str): Path to the .nd2 or .avi file.
         ui_app: User interface application instance with the tracking settings.
 
     Returns:
-        {object_id: DetectedObject} for every counted cell. Each object's position_history holds its trajectory.
+        {object_id: DetectedObject} for every counted cell, with DEP_outlet set from where it crossed the
+        counting line. Each object's position_history holds its trajectory.
     """
-    from pims import ND2Reader_SDK  # imported here so the tracking logic can be used and tested without the SDK
-
-    backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
     save_overlay = bool(_setting(ui_app, "save_overlay", False))
-    file_stem = os.path.splitext(os.path.basename(nd2_file_path))[0]
-    tracker = None
-
+    file_stem = os.path.splitext(os.path.basename(video_path))[0]
     if save_overlay:
         os.makedirs(ui_app.overlay_path, exist_ok=True)
         print(f"\noverlay saving in {ui_app.overlay_path}")
 
-    with ND2Reader_SDK(nd2_file_path) as nd2_file:
-        if 'm' in nd2_file.sizes.keys():  # new nikon weirdness
-            nd2_file.iter_axes = 'm'
-
-        prime_background(backSub, nd2_file, len(nd2_file))
-
-        for frame_number in tqdm(range(len(nd2_file)), desc=file_stem):
-            frame_data = cv.normalize(nd2_file[frame_number], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
+    tracker = None
+    with open_video(video_path) as frames:
+        n_frames = len(frames)
+        specks_by_frame = moving_specks_by_frame(
+            frames, n_frames, _setting(ui_app, "background_window"), _setting(ui_app, "detection_threshold"),
+            _setting(ui_app, "min_area"), _setting(ui_app, "max_area"))
+        for frame_number, frame_8u, specks in tqdm(specks_by_frame, total=n_frames, desc=file_stem):
             if tracker is None:
-                tracker = Tracker(image_h=frame_data.shape[0],
-                                  max_centroid_distance=ui_app.max_centroid_distance.get(),
-                                  timeout=ui_app.timeout.get(),
-                                  min_frames_tracked=_setting(ui_app, "min_frames_tracked",
-                                                             DEFAULT_MIN_FRAMES_TRACKED),
-                                  backtrack_tolerance=ui_app.cell_radius.get())
-
-            backSub_mask = backSub.apply(frame_data)
-            objects_in_frame, contours = detect_objects(frame_data=frame_data, frame_index=frame_number,
-                                                        backSub_mask=backSub_mask, ui_app=ui_app)
-            tracker.update(objects_in_frame, frame_number)
+                line_x, divider_y = count_line_and_divider(ui_app, frame_8u.shape)
+                tracker = Tracker(count_line_x=line_x, outlet_divider_y=divider_y,
+                                  max_centroid_distance=_setting(ui_app, "max_centroid_distance"),
+                                  timeout=_setting(ui_app, "timeout"),
+                                  backtrack_tolerance=_setting(ui_app, "cell_radius"),
+                                  min_detections=_setting(ui_app, "min_detections"))
+            tracker.update(specks_to_objects(specks, frame_number), frame_number)
 
             if save_overlay:
-                overlay = draw_overlay(frame_data, contours, tracker, frame_number, len(objects_in_frame))
+                overlay = draw_overlay(frame_8u, specks, tracker, frame_number, line_x, divider_y)
                 cv.imwrite(os.path.join(ui_app.overlay_path, f"{file_stem}_{frame_number:05d}.png"), overlay)
 
     if tracker is None:  # empty file
@@ -341,10 +513,32 @@ def nd2_mog_contours(nd2_file_path: str, ui_app) -> typing.Dict[int, DetectedObj
     return tracker.finish()
 
 
+# Older name, kept so existing scripts keep working
+nd2_mog_contours = count_cells
+
+
+def preview_frames(video_path: str, ui_app, n_images: int = 2):
+    """
+    Overlay images (see draw_overlay) for `n_images` consecutive frames from the middle of a video, showing
+    what will be detected with the current settings and where the counting line and outlet divider are.
+    """
+    with open_video(video_path) as frames:
+        n_frames = len(frames)
+        first = max(0, n_frames // 2 - n_images // 2)
+        indices = list(range(first, min(n_frames, first + n_images)))
+        images = []
+        for frame_number, frame_8u, specks in moving_specks_by_frame(
+                frames, n_frames, _setting(ui_app, "background_window"), _setting(ui_app, "detection_threshold"),
+                _setting(ui_app, "min_area"), _setting(ui_app, "max_area"), indices=indices):
+            line_x, divider_y = count_line_and_divider(ui_app, frame_8u.shape)
+            images.append(draw_overlay(frame_8u, specks, None, frame_number, line_x, divider_y))
+    return images
+
+
 def export_to_csv(counted_objects: typing.Dict[int, DetectedObject], csv_filename: str) -> None:
     with open(csv_filename, 'w', newline='') as csvfile:
         fieldnames = ['object_id', 'x_pos', 'y_pos', 'x_size', 'y_size', 'most_recent_frame', 'frames_tracked',
-                      'DEP_response']
+                      'DEP_response', 'count_frame', 'y_at_count_line']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         DEP_true = 0
@@ -364,12 +558,14 @@ def export_to_csv(counted_objects: typing.Dict[int, DetectedObject], csv_filenam
                 'y_size': obj.size[1],
                 'most_recent_frame': obj.most_recent_frame,
                 'frames_tracked': obj.frames_tracked,
-                'DEP_response': obj.DEP_outlet
+                'DEP_response': obj.DEP_outlet,
+                'count_frame': obj.count_frame,
+                'y_at_count_line': None if obj.count_y is None else round(obj.count_y, 1)
             })
         print("\nObject Detection Results:")
         print(f"\tCells counted: {len(counted_objects)}")
-        print(f"\tDEP True: {DEP_true}")
-        print(f"\tDEP False: {DEP_false}")
+        print(f"\tDEP True (top outlet): {DEP_true}")
+        print(f"\tDEP False (bottom outlet): {DEP_false}")
         print(f"{csv_filename} saved")
 
 
