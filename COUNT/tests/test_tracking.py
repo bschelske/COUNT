@@ -2,7 +2,7 @@
 Tests for COUNT/tracking.py.
 
 These run without the Nikon SDK, a display, or any .nd2 files: they use synthetic detections and synthetic
-videos (bright discs moving left to right on a grey background).
+videos (discs moving left to right on a grey background, sometimes with stationary dust).
 
 Run from the repository root:
     python -m unittest discover COUNT/tests
@@ -35,8 +35,7 @@ class FakeUI:
     """Stand-in for the tkinter UI with the settings the tracker reads."""
 
     def __init__(self, overlay_path="", save_overlay=False, **overrides):
-        settings = dict(canny_upper=255, canny_lower=85, max_centroid_distance=70, timeout=20, cell_radius=6,
-                        min_frames_tracked=3)
+        settings = dict(tracking.DEFAULT_SETTINGS, max_centroid_distance=70, cell_radius=6)
         settings.update(overrides)
         for name, value in settings.items():
             setattr(self, name, Var(value))
@@ -49,11 +48,11 @@ def obj(x, y, frame, size=(10, 10)):
     return DetectedObject(object_id=None, position=(x, y), size=size, most_recent_frame=frame)
 
 
-def run_tracker(frames, image_h=200, **kwargs):
-    """frames: list of lists of (x, y) top-left positions, one list per frame."""
-    settings = dict(max_centroid_distance=70, timeout=20, min_frames_tracked=3, backtrack_tolerance=6)
+def run_tracker(frames, line_x=150, divider_y=100, **kwargs):
+    """frames: list of lists of (x, y) top-left positions, one list per frame. Returns (tracker, counted)."""
+    settings = dict(max_centroid_distance=70, timeout=3, backtrack_tolerance=6)
     settings.update(kwargs)
-    tracker = Tracker(image_h=image_h, **settings)
+    tracker = Tracker(count_line_x=line_x, outlet_divider_y=divider_y, **settings)
     for frame_number, positions in enumerate(frames):
         tracker.update([obj(x, y, frame_number) for x, y in positions], frame_number)
     return tracker, tracker.finish()
@@ -66,21 +65,20 @@ class TestDetectedObject(unittest.TestCase):
     def test_calculate_distance(self):
         self.assertEqual(calculate_distance(obj(0, 0, 0), obj(3, 4, 0)), 5)
 
-    def test_outlet_uses_centre_not_top_edge(self):
-        # Top edge (y=95) is above the midline (100) but the centre (y=105) is below it: bottom outlet.
-        cell = obj(0, 95, 0, size=(10, 20))
-        cell.outlet_assignment(image_h=200)
-        self.assertFalse(cell.DEP_outlet)
-
-        cell = obj(0, 80, 0, size=(10, 10))
-        cell.outlet_assignment(image_h=200)
-        self.assertTrue(cell.DEP_outlet)
-
     def test_update_records_history(self):
         cell = obj(0, 0, 0)
         cell.update(obj(20, 0, 1), 1)
         self.assertEqual(cell.frames_tracked, 2)
         self.assertEqual(cell.position_history, {0: (0, 0), 1: (20, 0)})
+        self.assertEqual(cell.center_history, {0: (5, 5), 1: (25, 5)})
+
+    def test_line_crossing(self):
+        cell = obj(90, 40, 0)  # centre (95, 45)
+        self.assertIsNone(cell.line_crossing(100))  # only seen once
+        cell.update(obj(110, 60, 1), 1)  # centre (115, 65)
+        self.assertAlmostEqual(cell.line_crossing(100), 50)  # crossed x=100 a quarter of the way: y=50
+        self.assertIsNone(cell.line_crossing(150))  # has not reached x=150
+        self.assertIsNone(cell.line_crossing(90))  # was already past x=90
 
 
 class TestMatching(unittest.TestCase):
@@ -130,98 +128,118 @@ class TestMatching(unittest.TestCase):
 
 
 class TestTracker(unittest.TestCase):
+    def test_counted_once_when_crossing_the_line(self):
+        tracker = Tracker(count_line_x=150, outlet_divider_y=100, max_centroid_distance=70, timeout=3)
+        counts = []
+        for frame, x in enumerate(range(60, 300, 30)):
+            tracker.update([obj(x, 40, frame)], frame)
+            counts.append(len(tracker.counted))
+        self.assertEqual(counts, [0, 0, 0, 1, 1, 1, 1, 1])  # counted in the frame its centre passed x=150
+        self.assertEqual(tracker.outlet_counts(), (0, 1))
+
+    def test_outlet_decided_where_the_cell_crosses(self):
+        # Starts above the divider (y=100) and ends below it, but crosses the line above it: top outlet
+        frames = [[(100 + 30 * i, 60 + 20 * i)] for i in range(6)]
+        _, counted = run_tracker(frames, line_x=150, divider_y=100)
+        self.assertEqual([c.DEP_outlet for c in counted.values()], [True])
+        self.assertEqual(next(iter(counted.values())).count_frame, 2)
+
     def test_two_cells_in_same_frame_stay_separate(self):
-        # Previously the second cell was merged into the first cell's brand-new track.
-        frames = [[(100 + 15 * i, 50), (120 + 15 * i, 50)] for i in range(5)]
+        frames = [[(100 + 15 * i, 50), (120 + 15 * i, 50)] for i in range(6)]
         _, counted = run_tracker(frames)
         self.assertEqual(len(counted), 2)
 
-    def test_paused_cell_is_one_track(self):
-        # Previously a cell that did not move for a frame started a duplicate track.
-        frames = [[(100, 50)], [(100, 50)], [(101, 50)], [(130, 50)], [(160, 50)]]
+    def test_paused_cell_counted_once(self):
+        frames = [[(100, 50)], [(100, 50)], [(101, 50)], [(130, 50)], [(160, 50)], [(190, 50)]]
         _, counted = run_tracker(frames)
         self.assertEqual(len(counted), 1)
-        self.assertEqual(next(iter(counted.values())).frames_tracked, 5)
-
-    def test_fast_cell_counted_even_if_seen_fewer_frames_than_timeout(self):
-        # Previously a cell had to be tracked for more than `timeout` frames to be counted.
-        frames = [[(10 + 60 * i, 50)] for i in range(4)]
-        _, counted = run_tracker(frames, timeout=20, min_frames_tracked=3)
-        self.assertEqual(len(counted), 1)
-
-    def test_short_tracks_are_noise(self):
-        frames = [[(10, 50)], [], [], [(150, 150)], [(160, 150)]]
-        _, counted = run_tracker(frames, min_frames_tracked=3)
-        self.assertEqual(counted, {})
 
     def test_track_survives_short_gap(self):
-        frames = [[(10, 50)], [(40, 50)], [], [], [(70, 50)], [(100, 50)]]
-        _, counted = run_tracker(frames, timeout=5)
+        frames = [[(80, 50)], [(110, 50)], [], [], [(200, 50)], [(230, 50)]]
+        _, counted = run_tracker(frames, timeout=3, max_centroid_distance=40)
         self.assertEqual(len(counted), 1)
 
-    def test_track_closes_after_timeout(self):
-        tracker = Tracker(image_h=200, max_centroid_distance=70, timeout=2, min_frames_tracked=3)
-        for frame in range(3):
-            tracker.update([obj(10 + 20 * frame, 50, frame)], frame)
-        self.assertEqual(len(tracker.active), 1)
-        for frame in range(3, 6):
-            tracker.update([], frame)
-        self.assertEqual(len(tracker.active), 0)
-        self.assertEqual(len(tracker.counted), 1)
+    def test_cells_that_never_cross_are_not_counted(self):
+        # A cell that stays on the electrodes (left of the line), and one first seen right of the line
+        frames = [[(40 + (i % 2), 50), (200 + 20 * i, 150)] for i in range(6)]
+        _, counted = run_tracker(frames, line_x=150)
+        self.assertEqual(counted, {})
 
-    def test_outlets_assigned_from_last_position(self):
-        top = [(10 + 30 * i, 40) for i in range(5)]  # stays in the top half
-        bottom = [(10 + 30 * i, 140) for i in range(5)]  # stays in the bottom half
-        _, counted = run_tracker([[t, b] for t, b in zip(top, bottom)], image_h=200)
-        self.assertEqual(sorted(o.DEP_outlet for o in counted.values()), [False, True])
+    def test_moving_left_is_not_counted(self):
+        frames = [[(200 - 30 * i, 50)] for i in range(6)]
+        _, counted = run_tracker(frames, line_x=150, backtrack_tolerance=40)
+        self.assertEqual(counted, {})
 
-    def test_counted_so_far(self):
-        tracker = Tracker(image_h=200, max_centroid_distance=70, timeout=20, min_frames_tracked=3)
-        for frame in range(2):
-            tracker.update([obj(10 + 20 * frame, 50, frame)], frame)
-        self.assertEqual(tracker.counted_so_far(), 0)
-        tracker.update([obj(50, 50, 2)], 2)
-        self.assertEqual(tracker.counted_so_far(), 1)
+    def test_outlet_counts(self):
+        top = [(60 + 30 * i, 40) for i in range(6)]
+        bottom = [(60 + 30 * i, 140) for i in range(6)]
+        tracker, _ = run_tracker([[t, b] for t, b in zip(top, bottom)], divider_y=100)
+        self.assertEqual(tracker.outlet_counts(), (1, 1))
 
 
-def synthetic_video(n_frames=30, size=(200, 300), cells=((0, 50), (-60, 150), (-120, 60)), speed=15, radius=6):
-    """Bright discs moving right on a grey background. cells: (starting x, y) for each cell's centre."""
+def synthetic_video(n_frames=30, size=(200, 300), cells=((0, 50), (-60, 150), (-120, 60)), speed=15, radius=6,
+                    dust=(), cell_value=400):
+    """
+    Discs moving right on a grey (100) background. cells: (starting x, y) for each cell's centre.
+    dust: (x, y) of stationary dark spots that never move.
+    """
     frames = []
     for frame in range(n_frames):
         image = np.full(size, 100, dtype=np.uint16)
+        for x, y in dust:
+            cv.circle(image, (int(x), int(y)), 4, 20, -1)
         for start_x, y in cells:
             x = start_x + speed * frame
             if 0 <= x < size[1]:
-                cv.circle(image, (int(x), int(y)), radius, 400, -1)
+                cv.circle(image, (int(x), int(y)), radius, cell_value, -1)
         frames.append(image)
     return frames
 
 
 class TestDetection(unittest.TestCase):
-    def test_no_motion_means_no_detections(self):
+    def test_no_difference_means_no_specks(self):
         frame = np.full((100, 100), 128, dtype=np.uint8)
-        objects, contours = tracking.detect_objects(frame, 0, np.zeros_like(frame), FakeUI())
-        self.assertEqual((objects, contours), ([], []))
+        self.assertEqual(tracking.find_moving_specks(frame, frame.copy(), 8, 6, 600), [])
 
-    def test_primed_background_detects_from_the_start(self):
-        # A cell already in view at frame 0 is part of the background the model first learns, so it is
-        # picked up once it has moved off its starting spot (frame 1 at this speed), not after ~20 frames.
-        frames = synthetic_video(n_frames=40, cells=((40, 60),), speed=10)
-        backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        tracking.prime_background(backSub, frames, len(frames))
-        backSub.apply(cv.normalize(frames[0], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
-        for index in (1, 2, 3):
-            mask = backSub.apply(cv.normalize(frames[index], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U))
-            objects, _ = tracking.detect_objects(frames[index], index, mask, FakeUI())
-            self.assertEqual(len(objects), 1, f"frame {index}")
+    def test_finds_specks_that_differ_from_background(self):
+        background = np.full((200, 300), 120, dtype=np.uint8)
+        frame = background.copy()
+        cv.circle(frame, (50, 50), 4, 60, -1)  # darker cell
+        cv.circle(frame, (200, 150), 4, 200, -1)  # brighter cell
+        cv.circle(frame, (250, 30), 4, 124, -1)  # too faint to count
+        specks = tracking.find_moving_specks(frame, background, 8, 6, 600)
+        centres = sorted((round(cx), round(cy)) for cx, cy, *_ in specks)
+        self.assertEqual(centres, [(50, 50), (200, 150)])
 
-    def test_detects_separate_cells(self):
-        mask = np.zeros((200, 300), dtype=np.uint8)
-        cv.circle(mask, (50, 50), 6, 255, -1)
-        cv.circle(mask, (200, 150), 6, 255, -1)
-        objects, contours = tracking.detect_objects(mask, 0, mask, FakeUI())
-        self.assertEqual(len(objects), 2)
-        self.assertEqual(len(contours), 2)
+    def test_size_limits(self):
+        background = np.full((200, 300), 120, dtype=np.uint8)
+        frame = background.copy()
+        cv.circle(frame, (50, 50), 4, 40, -1)
+        cv.circle(frame, (200, 100), 40, 40, -1)  # far bigger than a cell
+        specks = tracking.find_moving_specks(frame, background, 8, 6, 600)
+        self.assertEqual(len(specks), 1)
+
+    def test_stationary_dust_is_ignored(self):
+        frames = synthetic_video(cells=((0, 50),), dust=((150, 100), (60, 170)))
+        found = list(tracking.moving_specks_by_frame(frames, len(frames), 10, 8, 6, 600))
+        self.assertEqual(len(found), len(frames))
+        for frame_number, frame, specks in found:
+            self.assertTrue(all(abs(cy - 50) < 10 for _, cy, *_ in specks), frame_number)  # only the moving cell
+        self.assertGreater(sum(len(specks) for _, _, specks in found), 15)
+
+    def test_16_bit_frames_use_one_intensity_scale(self):
+        frames = synthetic_video(n_frames=3)
+        scale = tracking.intensity_scale(frames[0])
+        converted = [tracking.to_8bit(f, scale) for f in frames]
+        self.assertTrue(all(c.dtype == np.uint8 for c in converted))
+        self.assertTrue(all(c[199, 299] == converted[0][199, 299] for c in converted))  # background unchanged
+        self.assertIsNone(tracking.intensity_scale(converted[0]))
+        self.assertIs(tracking.to_8bit(converted[0], None), converted[0])
+
+    def test_one_frame_video_has_no_specks(self):
+        frames = synthetic_video(n_frames=1)
+        self.assertEqual([specks for _, _, specks in tracking.moving_specks_by_frame(frames, 1, 10, 8, 6, 600)],
+                         [[]])
 
 
 class FakeND2:
@@ -260,27 +278,48 @@ class TestEndToEnd(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_counts_and_outlets(self):
-        counted = tracking.nd2_mog_contours("synthetic.nd2", FakeUI())
+        counted = tracking.count_cells("synthetic.nd2", FakeUI())
         self.assertEqual(len(counted), 3)
         self.assertEqual(sum(o.DEP_outlet is True for o in counted.values()), 2)
         self.assertEqual(sum(o.DEP_outlet is False for o in counted.values()), 1)
 
+    def test_old_function_name_still_works(self):
+        self.assertIs(tracking.nd2_mog_contours, tracking.count_cells)
+
+    def test_dark_cells_with_dust(self):
+        FakeND2.frames = synthetic_video(cell_value=30, dust=((150, 100), (60, 170), (240, 40)))
+        counted = tracking.count_cells("synthetic.nd2", FakeUI())
+        self.assertEqual(sorted(o.DEP_outlet for o in counted.values()), [False, True, True])
+
+    def test_count_line_and_divider_settings(self):
+        # Counting line beyond where the cells reach: nothing counted
+        self.assertEqual(tracking.count_cells("synthetic.nd2", FakeUI(count_line_x=299)), {})
+        # Divider above every cell: all counted as bottom outlet
+        counted = tracking.count_cells("synthetic.nd2", FakeUI(outlet_divider_y=20))
+        self.assertEqual([o.DEP_outlet for o in counted.values()], [False, False, False])
+
+    def test_preview(self):
+        images = tracking.preview_frames("synthetic.nd2", FakeUI(), n_images=2)
+        self.assertEqual(len(images), 2)
+        self.assertEqual(images[0].shape, (200, 300, 3))
+
     def test_overlays_are_saved_with_annotations(self):
         overlay_path = os.path.join(self.tmp.name, "overlay")
-        tracking.nd2_mog_contours(os.path.join("data", "trial_10kHz.nd2"),
+        tracking.count_cells(os.path.join("data", "trial_10kHz.nd2"),
                                   FakeUI(overlay_path=overlay_path, save_overlay=True))
         files = sorted(os.listdir(overlay_path))
         self.assertEqual(len(files), len(FakeND2.frames))
         self.assertEqual(files[0], "trial_10kHz_00000.png")
 
-        # Every saved frame is the colour image (not the black-and-white mask) with the red header text on it
+        # Every saved frame is the colour image with the header text and the counting line (x=225) on it
         for name in (files[0], files[-1]):
             image = cv.imread(os.path.join(overlay_path, name))
-            red = (image[:, :, 2] > 200) & (image[:, :, 0] < 50) & (image[:, :, 1] < 50)
-            self.assertTrue(red[:40].any(), name)
+            self.assertTrue((image[:20] > 200).all(axis=2).any(), name)  # white header text
+            line = image[110:, 225]  # below the outlet divider (y=100), which crosses the line
+            self.assertTrue(((line[:, 0] > 200) & (line[:, 2] < 50)).all(), name)  # blue counting line
 
     def test_csv_exports(self):
-        counted = tracking.nd2_mog_contours("synthetic.nd2", FakeUI())
+        counted = tracking.count_cells("synthetic.nd2", FakeUI())
         results = os.path.join(self.tmp.name, "results.csv")
         trajectories = os.path.join(self.tmp.name, "trajectories.csv")
         tracking.export_to_csv(counted, results)
@@ -289,6 +328,7 @@ class TestEndToEnd(unittest.TestCase):
         with open(results, newline='') as f:
             rows = list(csv.DictReader(f))
         self.assertEqual(len(rows), 3)
+        self.assertTrue(all(r['count_frame'] and r['y_at_count_line'] for r in rows))
 
         with open(trajectories, newline='') as f:
             rows = list(csv.DictReader(f))
@@ -328,7 +368,7 @@ class TestAviInput(unittest.TestCase):
                 frames[len(frames)]
 
     def test_counts_cells_in_avi(self):
-        counted = tracking.nd2_mog_contours(self.path, FakeUI())
+        counted = tracking.count_cells(self.path, FakeUI())
         self.assertEqual(len(counted), 3)
         self.assertEqual(sum(o.DEP_outlet is True for o in counted.values()), 2)
 
