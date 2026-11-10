@@ -64,8 +64,13 @@ python COUNT/main.py
 - **Counting Line x (px, 0 = auto)**: Where cells are counted, as a pixel column. Place it in the main channel past the electrodes and before the outlets split. 0 puts it three quarters of the way across the image
 - **Outlet Divider y (px, 0 = auto)**: Cells crossing the counting line above this pixel row are counted as top outlet (pDEP), below it as bottom outlet (nDEP). Line it up with the tip that splits the outlets. 0 uses the middle of the image
 - **Min / Max Speck Area (px)**: Specks smaller or larger than this are ignored
+- **Region Before Line / Region Top y / Region Bottom y (px)**: Only this part of each image is analysed: from this many pixels left of the counting line to the right edge, between the top and bottom rows (shown as a dark green box in the preview). Keep the channel and outlets inside it. Start it well before the line (the default is 1000 px) so each cell's track has learned its speed before it reaches the line; with less, crowded cells can be mixed up. Region Before Line = 0 starts at the left edge, Region Bottom y = 0 uses the bottom of the image
+- **Processor Cores (0 = all)**: How many processor cores to use. Each video is split into chunks processed side by side, so more cores is faster with the same result
 
-The defaults in `COUNT/settings.json` (counting line x = 1500, divider y = 1230) match the 2048 × 2048 recordings used to validate COUNT. Settings can be saved with **File → Save as default settings** and loaded with **File → Load settings**.
+The defaults in `COUNT/settings.json` (counting line x = 1500, divider y = 1230, region rows 700–1750) match the 2048 × 2048 recordings used to validate COUNT. Settings can be saved with **File → Save as default settings** and loaded with **File → Load settings**.
+
+## Speed
+Most of the time goes into building each image's background. COUNT keeps this down by analysing only the processing region, reading uncompressed AVI files directly (only the rows it needs), and using all processor cores. On a 2-core test machine, the two 2048 × 2048 validation videos (166 and 201 images) take about 30–40 seconds each; a computer with more cores is faster.
 
 ## Output
 For each video, in the chosen CSV folder:
