@@ -29,11 +29,15 @@ LEFT_FIELDS = [("max_centroid_distance", "Max Movement Between Images (px):"),
                ("cell_radius", "Cell Radius (px):"),
                ("min_detections", "Min Detections to Count:"),
                ("detection_threshold", "Detection Threshold (grey levels):"),
-               ("background_window", "Background Window (images each side):")]
+               ("background_window", "Background Window (images each side):"),
+               ("workers", "Processor Cores (0 = all):")]
 RIGHT_FIELDS = [("count_line_x", "Counting Line x (px, 0 = auto):"),
                 ("outlet_divider_y", "Outlet Divider y (px, 0 = auto):"),
                 ("min_area", "Min Speck Area (px):"),
-                ("max_area", "Max Speck Area (px):")]
+                ("max_area", "Max Speck Area (px):"),
+                ("region_before_line", "Region Before Line (px, 0 = left edge):"),
+                ("region_top", "Region Top y (px):"),
+                ("region_bottom", "Region Bottom y (px, 0 = bottom):")]
 
 PREVIEW_WINDOW = 'Preview: press "4" or "5" to switch images, "ESC" to close'
 
@@ -250,7 +254,11 @@ class ROISelectionApp:
             return
 
         # Get frames
-        frames = tracking.preview_frames(self.files[0], self, n_images=2)
+        try:
+            frames = tracking.preview_frames(self.files[0], self, n_images=2)
+        except ValueError as e:  # e.g. a processing region outside the image
+            messagebox.showerror("Invalid setting", str(e))
+            return
         if not frames:
             messagebox.showerror("Nothing to preview", f"No images found in {self.files[0]}")
             return
