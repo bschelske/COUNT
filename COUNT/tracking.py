@@ -26,9 +26,10 @@ How cells are tracked:
 
 How cells are counted:
     A cell is counted once, when its track crosses the vertical counting line (x = `count_line_x`) moving
-    right. If it crosses above the outlet divider (y < `outlet_divider_y`) it is going to the top outlet
-    (pDEP), otherwise to the bottom outlet (nDEP). Tracks that never cross the line (cells held on the
-    electrodes, noise) are not counted.
+    right and it has been detected in at least `min_detections` images (so two noise specks that happen to
+    line up either side of the line are not counted). If it crosses above the outlet divider
+    (y < `outlet_divider_y`) it is going to the top outlet (pDEP), otherwise to the bottom outlet (nDEP).
+    Tracks that never cross the line (cells held on the electrodes, noise) are not counted.
 
 If you decide to save overlays, you'll get a .png per frame in the overlay folder.
     hint: ffmpeg
@@ -55,6 +56,7 @@ DEFAULT_SETTINGS = {
     "max_centroid_distance": 100,  # furthest a cell can move between images (pixels, from its predicted spot)
     "timeout": 3,                 # images a track can go undetected before it is closed
     "cell_radius": 8,             # how far a cell may jitter left between images and still match (pixels)
+    "min_detections": 3,          # a cell must be detected in at least this many images to be counted
     "count_line_x": 0,            # x of the counting line (pixels); 0 = three quarters of the image width
     "outlet_divider_y": 0,        # y of the outlet divider (pixels); 0 = the middle of the image
 }
@@ -205,16 +207,16 @@ class DetectedObject:
         self.position_history[frame_number] = detection.position
         self.center_history[frame_number] = detection.center()
 
-    def line_crossing(self, line_x: float) -> typing.Optional[float]:
+    def line_crossing(self, line_x: float) -> typing.Optional[typing.Tuple[int, float]]:
         """
-        If the last step of this track crossed the vertical line x = line_x moving right, return the y where it
-        crossed. Otherwise None.
+        If this track has crossed the vertical line x = line_x moving right, return (frame, y) for the first
+        crossing: the frame of the first detection past the line, and the y where the track crossed it.
+        Otherwise None.
         """
-        if len(self.center_history) < 2:
-            return None
-        (_, (x0, y0)), (_, (x1, y1)) = sorted(self.center_history.items())[-2:]
-        if x0 < line_x <= x1:
-            return y0 + (y1 - y0) * (line_x - x0) / (x1 - x0)
+        points = sorted(self.center_history.items())
+        for (_, (x0, y0)), (frame, (x1, y1)) in zip(points, points[1:]):
+            if x0 < line_x <= x1:
+                return frame, y0 + (y1 - y0) * (line_x - x0) / (x1 - x0)
         return None
 
 
@@ -274,8 +276,9 @@ class Tracker:
     """
 
     def __init__(self, count_line_x: float, outlet_divider_y: float, max_centroid_distance: float, timeout: int,
-                 backtrack_tolerance: float = 0):
+                 backtrack_tolerance: float = 0, min_detections: int = 2):
         self.count_line_x = count_line_x
+        self.min_detections = max(2, min_detections)
         self.outlet_divider_y = outlet_divider_y
         self.max_centroid_distance = max_centroid_distance
         self.timeout = timeout
@@ -294,11 +297,13 @@ class Tracker:
 
         self.counted_this_frame = []
         for track_id, track in self.active.items():
-            if track_id in self.counted or track.most_recent_frame != frame_number:
+            if (track_id in self.counted or track.most_recent_frame != frame_number
+                    or track.frames_tracked < self.min_detections):
                 continue
-            y = track.line_crossing(self.count_line_x)
-            if y is not None:
-                track.count_frame, track.count_y = frame_number, y
+            crossing = track.line_crossing(self.count_line_x)
+            if crossing is not None:
+                track.count_frame, y = crossing
+                track.count_y = y
                 track.DEP_outlet = bool(y < self.outlet_divider_y)
                 self.counted[track_id] = track
                 self.counted_this_frame.append(track)
@@ -456,6 +461,8 @@ def draw_overlay(frame_8u, specks, tracker: typing.Optional[Tracker], frame_numb
         for cell in tracker.counted_this_frame:
             colour = (0, 255, 0) if cell.DEP_outlet else (255, 0, 255)
             cv.circle(overlay, (line_x, int(cell.count_y)), 16 * s, colour, 2 * s)
+            x, y = cell.center()
+            cv.circle(overlay, (int(x), int(y)), 10 * s, colour, s)
         bottom, top = tracker.outlet_counts()
         header += f"   counted  nDEP (bottom): {bottom}   pDEP (top): {top}"
     cv.rectangle(overlay, (0, 0), (width - 1, 22 * s), (0, 0, 0), -1)
@@ -493,7 +500,8 @@ def count_cells(video_path: str, ui_app) -> typing.Dict[int, DetectedObject]:
                 tracker = Tracker(count_line_x=line_x, outlet_divider_y=divider_y,
                                   max_centroid_distance=_setting(ui_app, "max_centroid_distance"),
                                   timeout=_setting(ui_app, "timeout"),
-                                  backtrack_tolerance=_setting(ui_app, "cell_radius"))
+                                  backtrack_tolerance=_setting(ui_app, "cell_radius"),
+                                  min_detections=_setting(ui_app, "min_detections"))
             tracker.update(specks_to_objects(specks, frame_number), frame_number)
 
             if save_overlay:

@@ -47,7 +47,7 @@ class TestMatchesCount(unittest.TestCase):
             line_x, divider_y = tracking.count_line_and_divider(settings, shape)
             result = validate_counts.count_from_specks(detections[setting], line_x, divider_y,
                                                        settings.max_centroid_distance.get(), settings.timeout.get(),
-                                                       settings.cell_radius.get())
+                                                       settings.cell_radius.get(), settings.min_detections.get())
             self.assertEqual(result, (len(counted) - top, top))
             self.assertEqual(result, (2, 2))
 

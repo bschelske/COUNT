@@ -103,11 +103,12 @@ def detect_all(path, settings, detection_settings):
     return detections, shape
 
 
-def count_from_specks(specks_by_frame, count_line_x, outlet_divider_y, max_centroid_distance, timeout, cell_radius):
+def count_from_specks(specks_by_frame, count_line_x, outlet_divider_y, max_centroid_distance, timeout, cell_radius,
+                      min_detections=tracking.DEFAULT_SETTINGS["min_detections"]):
     """Track and count stored specks with the given settings. Returns (bottom, top)."""
     tracker = tracking.Tracker(count_line_x=count_line_x, outlet_divider_y=outlet_divider_y,
                                max_centroid_distance=max_centroid_distance, timeout=timeout,
-                               backtrack_tolerance=cell_radius)
+                               backtrack_tolerance=cell_radius, min_detections=min_detections)
     for frame_number, specks in enumerate(specks_by_frame):
         tracker.update(tracking.specks_to_objects(specks, frame_number), frame_number)
     tracker.finish()
@@ -158,7 +159,7 @@ def main():
         for detection in detection_settings:
             for max_distance, timeout, offset in tracking_settings:
                 counts = count_from_specks(detections[detection], line_x + offset, divider_y, max_distance, timeout,
-                                           settings.cell_radius.get())
+                                           settings.cell_radius.get(), settings.min_detections.get())
                 results.setdefault((detection, (max_distance, timeout, offset)), []).append(counts)
 
     def error(counts):

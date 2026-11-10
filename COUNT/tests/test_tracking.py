@@ -76,9 +76,13 @@ class TestDetectedObject(unittest.TestCase):
         cell = obj(90, 40, 0)  # centre (95, 45)
         self.assertIsNone(cell.line_crossing(100))  # only seen once
         cell.update(obj(110, 60, 1), 1)  # centre (115, 65)
-        self.assertAlmostEqual(cell.line_crossing(100), 50)  # crossed x=100 a quarter of the way: y=50
+        frame, y = cell.line_crossing(100)  # crossed x=100 a quarter of the way: y=50
+        self.assertEqual(frame, 1)
+        self.assertAlmostEqual(y, 50)
         self.assertIsNone(cell.line_crossing(150))  # has not reached x=150
         self.assertIsNone(cell.line_crossing(90))  # was already past x=90
+        cell.update(obj(140, 60, 2), 2)
+        self.assertEqual(cell.line_crossing(100)[0], 1)  # still the first crossing
 
 
 class TestMatching(unittest.TestCase):
@@ -169,6 +173,25 @@ class TestTracker(unittest.TestCase):
         frames = [[(200 - 30 * i, 50)] for i in range(6)]
         _, counted = run_tracker(frames, line_x=150, backtrack_tolerance=40)
         self.assertEqual(counted, {})
+
+    def test_two_noise_specks_either_side_of_the_line_are_not_counted(self):
+        frames = [[(120, 50)], [], [(180, 52)], [], [], []]  # 60 px apart, within the 70 px limit
+        _, counted = run_tracker(frames, min_detections=3)
+        self.assertEqual(counted, {})
+        _, counted = run_tracker(frames, min_detections=2)
+        self.assertEqual(len(counted), 1)
+
+    def test_cell_crossing_early_is_counted_once_seen_enough(self):
+        # Crosses x=150 between its 1st and 2nd detections; counted when it is detected a 3rd time, but the
+        # count records the frame it crossed in
+        tracker = Tracker(count_line_x=150, outlet_divider_y=100, max_centroid_distance=70, timeout=3,
+                          min_detections=3)
+        tracker.update([obj(120, 40, 0)], 0)
+        tracker.update([obj(160, 40, 1)], 1)
+        self.assertEqual(tracker.counted, {})
+        tracker.update([obj(200, 40, 2)], 2)
+        self.assertEqual([c.count_frame for c in tracker.counted.values()], [1])
+        self.assertEqual(len(tracker.counted_this_frame), 1)
 
     def test_outlet_counts(self):
         top = [(60 + 30 * i, 40) for i in range(6)]

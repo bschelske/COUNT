@@ -6,6 +6,7 @@
     "max_centroid_distance": 100,
     "timeout": 3,
     "cell_radius": 8,
+    "min_detections": 3,
     "count_line_x": 1500,
     "outlet_divider_y": 1230,
     "save_overlay": false,

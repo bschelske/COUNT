@@ -27,6 +27,7 @@ TRACKING_SETTINGS = list(tracking.DEFAULT_SETTINGS)
 LEFT_FIELDS = [("max_centroid_distance", "Max Movement Between Images (px):"),
                ("timeout", "Timeout (images):"),
                ("cell_radius", "Cell Radius (px):"),
+               ("min_detections", "Min Detections to Count:"),
                ("detection_threshold", "Detection Threshold (grey levels):"),
                ("background_window", "Background Window (images each side):")]
 RIGHT_FIELDS = [("count_line_x", "Counting Line x (px, 0 = auto):"),
