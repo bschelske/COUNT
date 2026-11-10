@@ -18,20 +18,24 @@ PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SETTINGS_PATH = os.path.join(PACKAGE_DIR, "settings.json")
 ICON_PATH = os.path.join(PACKAGE_DIR, "count.ico")
 
-DEFAULT_SETTINGS = {"canny_upper": 255,
-                    "canny_lower": 85,
-                    "max_centroid_distance": 70,
-                    "timeout": 20,
-                    "cell_radius": 8,
-                    "min_frames_tracked": tracking.DEFAULT_MIN_FRAMES_TRACKED,
-                    "save_overlay": False,
-                    "csv_save_path": "results/"}
+DEFAULT_SETTINGS = dict(tracking.DEFAULT_SETTINGS, save_overlay=False, csv_save_path="results/")
 
 # Settings that map directly onto a tkinter variable of the same name
-TRACKING_SETTINGS = ["canny_upper", "canny_lower", "max_centroid_distance", "timeout", "cell_radius",
-                     "min_frames_tracked"]
+TRACKING_SETTINGS = list(tracking.DEFAULT_SETTINGS)
 
-PREVIEW_WINDOW = 'Try pressing "4" or "5" "ESC" to change settings/quit'
+# (setting, label) for each field in the window, in two columns
+LEFT_FIELDS = [("max_centroid_distance", "Max Movement Between Images (px):"),
+               ("timeout", "Timeout (images):"),
+               ("cell_radius", "Cell Radius (px):"),
+               ("min_detections", "Min Detections to Count:"),
+               ("detection_threshold", "Detection Threshold (grey levels):"),
+               ("background_window", "Background Window (images each side):")]
+RIGHT_FIELDS = [("count_line_x", "Counting Line x (px, 0 = auto):"),
+                ("outlet_divider_y", "Outlet Divider y (px, 0 = auto):"),
+                ("min_area", "Min Speck Area (px):"),
+                ("max_area", "Max Speck Area (px):")]
+
+PREVIEW_WINDOW = 'Preview: press "4" or "5" to switch images, "ESC" to close'
 
 
 class ROISelectionApp:
@@ -48,12 +52,9 @@ class ROISelectionApp:
         self.selection_text = tk.StringVar(value="Nothing selected")
         self.csv_folder_path = tk.StringVar(value=self.settings["csv_save_path"])  # Default csv save path
         self.overlay_path = ""
-        self.canny_upper = tk.IntVar()  # Upper canny threshold (3:1 ratio)
-        self.canny_lower = tk.IntVar()  # Lower canny threshold
-        self.max_centroid_distance = tk.IntVar()  # max distance an object will travel between frames (px)
-        self.timeout = tk.IntVar()  # How long before a lost object's track is closed (frames)
-        self.cell_radius = tk.IntVar()
-        self.min_frames_tracked = tk.IntVar()  # A cell must be seen in this many frames to be counted
+        # One tkinter variable per tracking setting (see tracking.DEFAULT_SETTINGS for what each one does)
+        for name in TRACKING_SETTINGS:
+            setattr(self, name, tk.IntVar())
         self.save_overlay = tk.BooleanVar()
         self.apply_settings()
         self.files = []  # Empty list that will accept an individual file, or files from a folder
@@ -100,47 +101,20 @@ class ROISelectionApp:
         self.csv_button = tk.Button(self.master, text="Choose Folder", command=self.choose_csv_output)
         self.csv_button.grid(row=0, column=3, padx=5, pady=5)
 
-        # Preview Edge Dectection button
-        tk.Label(self.master, text="Visualize Edge Detection", anchor=justification).grid(sticky="w", row=8, column=0,
-                                                                                          padx=5, pady=5)
+        # Preview button
+        tk.Label(self.master, text="Check detection and counting line", anchor=justification).grid(
+            sticky="w", row=8, column=0, padx=5, pady=5)
         self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
         self.edge_preview_button.grid(row=8, column=1, padx=5, pady=5)
 
-        # Canny Upper input field
-        tk.Label(self.master, text="Canny Upper:", anchor=justification).grid(sticky="w", row=2, column=0, padx=5,
-                                                                              pady=5)
-        self.canny_upper_entry = tk.Entry(self.master, textvariable=self.canny_upper)
-        self.canny_upper_entry.grid(row=2, column=1, padx=5, pady=5)
-
-        # Canny Lower input field
-        tk.Label(self.master, text="Canny Lower:", anchor=justification).grid(sticky="w", row=3, column=0, padx=5,
-                                                                              pady=5)
-        self.canny_lower_entry = tk.Entry(self.master, textvariable=self.canny_lower)
-        self.canny_lower_entry.grid(row=3, column=1, padx=5, pady=5)
-
-        # Max Centroid Distance input field
-        tk.Label(self.master, text="Max Centroid Distance (px):", anchor=justification).grid(sticky="w", row=4,
-                                                                                             column=0, padx=5, pady=5)
-        self.max_centroid_distance_entry = tk.Entry(self.master, textvariable=self.max_centroid_distance)
-        self.max_centroid_distance_entry.grid(row=4, column=1, padx=5, pady=5)
-
-        # Timeout threshold input field
-        tk.Label(self.master, text="Timeout Threshold (frames):", anchor=justification).grid(sticky="w", row=5,
-                                                                                             column=0, padx=5, pady=5)
-        self.timeout_entry = tk.Entry(self.master, textvariable=self.timeout)
-        self.timeout_entry.grid(row=5, column=1, padx=5, pady=5)
-
-        # Expected Cell Radius input field
-        tk.Label(self.master, text="Expected Cell Radius (px):", anchor=justification).grid(sticky="w", row=6, column=0,
-                                                                                            padx=5, pady=5)
-        self.cell_radius_entry = tk.Entry(self.master, textvariable=self.cell_radius)
-        self.cell_radius_entry.grid(row=6, column=1, padx=5, pady=5)
-
-        # Minimum frames tracked input field
-        tk.Label(self.master, text="Min Frames to Count:", anchor=justification).grid(sticky="w", row=2, column=2,
-                                                                                      padx=5, pady=5)
-        self.min_frames_tracked_entry = tk.Entry(self.master, textvariable=self.min_frames_tracked)
-        self.min_frames_tracked_entry.grid(row=2, column=3, padx=5, pady=5)
+        # Tracking settings
+        for column, fields in ((0, LEFT_FIELDS), (2, RIGHT_FIELDS)):
+            for row, (name, label) in enumerate(fields, start=2):
+                tk.Label(self.master, text=label, anchor=justification).grid(sticky="w", row=row, column=column,
+                                                                             padx=5, pady=5)
+                entry = tk.Entry(self.master, textvariable=getattr(self, name))
+                entry.grid(row=row, column=column + 1, padx=5, pady=5)
+                setattr(self, f"{name}_entry", entry)
 
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
@@ -260,14 +234,27 @@ class ROISelectionApp:
         self.master.destroy()
 
     def preview_edge_detection(self):
-        """Show detections on frames 4 and 5 of the selected file (or the first file in the selected folder)."""
+        """
+        Show two consecutive images from the middle of the selected file (or the first file in the selected
+        folder) with the moving specks that will be detected, the counting line and the outlet divider.
+        """
         self.input_handling()
         if not self.files:
             messagebox.showerror("Nothing to preview", "Choose an .nd2 or .avi file, or a folder, first.")
             return
+        try:
+            for name in TRACKING_SETTINGS:
+                getattr(self, name).get()
+        except tk.TclError:
+            messagebox.showerror("Invalid setting", "Every tracking setting must be a whole number.")
+            return
 
         # Get frames
-        frames = [self.edge_detection_handling(3), self.edge_detection_handling(4)]
+        frames = tracking.preview_frames(self.files[0], self, n_images=2)
+        if not frames:
+            messagebox.showerror("Nothing to preview", f"No images found in {self.files[0]}")
+            return
+        frames = frames + frames[-1:]  # a one-image file shows the same image for "4" and "5"
         # Display images
         cv2.namedWindow(PREVIEW_WINDOW, cv2.WINDOW_NORMAL)
         cv2.imshow(PREVIEW_WINDOW, frames[0])
@@ -285,27 +272,6 @@ class ROISelectionApp:
             elif k == 27:  # ESC key
                 break
         cv2.destroyWindow(PREVIEW_WINDOW)
-
-    def edge_detection_handling(self, frame_index):
-        """Edge detection for UI preview, using the same detection code as the tracker"""
-        backSub = cv2.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-        with tracking.open_video(self.files[0]) as nd2_file:
-            # MOG2 Background Method: prime the background exactly as the tracker does, then run up to frame_index
-            tracking.prime_background(backSub, nd2_file, len(nd2_file))
-            for index in range(frame_index + 1):
-                frame = cv2.normalize(nd2_file[index], None, 0, 255, cv2.NORM_MINMAX, dtype=cv2.CV_8U)
-                foreground_mask = backSub.apply(frame)
-
-            frame_copy = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)  # Copy of the current frame for the overlay
-
-        contours = []
-        if foreground_mask.any():
-            contours = tracking.find_cell_contours(foreground_mask, self.canny_lower.get(), self.canny_upper.get(),
-                                                   self.cell_radius.get())
-        cv2.drawContours(frame_copy, contours, -1, (0, 0, 255), 2)
-        cv2.putText(frame_copy, f"Frame {frame_index + 1} Objects: {len(contours)}", (10, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
-        return frame_copy
 
     def quit_ui(self):
         self.master.destroy()

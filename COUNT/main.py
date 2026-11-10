@@ -38,7 +38,7 @@ def main():
             file_name = os.path.splitext(os.path.basename(nd2_file))[0]
 
             # Track the .nd2 or .avi file using MOG2 background subtraction
-            counted_objects = tracking.nd2_mog_contours(nd2_file, app)
+            counted_objects = tracking.count_cells(nd2_file, app)
 
             csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_results.csv")
             trajectory_csv_filename = os.path.join(app.csv_folder_path.get(), f"{file_name}_trajectory_results.csv")

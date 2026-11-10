@@ -1,10 +1,14 @@
 {
-    "canny_upper": 255,
-    "canny_lower": 85,
-    "max_centroid_distance": 70,
-    "timeout": 20,
+    "background_window": 10,
+    "detection_threshold": 8,
+    "min_area": 6,
+    "max_area": 600,
+    "max_centroid_distance": 100,
+    "timeout": 3,
     "cell_radius": 8,
-    "min_frames_tracked": 3,
+    "min_detections": 3,
+    "count_line_x": 1500,
+    "outlet_divider_y": 1230,
     "save_overlay": false,
     "csv_save_path": "results/"
 }

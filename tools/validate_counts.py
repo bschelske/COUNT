@@ -25,24 +25,39 @@ import re
 import sys
 import time
 
-import cv2 as cv
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from COUNT import tracking  # noqa: E402
 
 SETTINGS_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "COUNT", "settings.json")
 
-# Settings tried by --sweep. Detection settings change which objects are found in each frame; tracking settings
-# change how those objects are linked into cells.
+# Settings tried by --sweep. Detection settings change which specks are found in each image; tracking settings
+# change how specks are linked into cells and where they are counted. Counting line positions are offsets
+# (pixels) from the line in the settings.
 SWEEP_DETECTION = {
-    "canny_lower": [40, 85, 130],
-    "cell_radius": [4, 6, 8, 10],
+    "detection_threshold": [6, 8, 10, 12],
+    "min_area": [6, 15],
 }
 SWEEP_TRACKING = {
-    "max_centroid_distance": [40, 70, 100, 150],
-    "timeout": [5, 10, 20],
-    "min_frames_tracked": [2, 3, 5, 8],
+    "max_centroid_distance": [70, 100, 140],
+    "timeout": [2, 3, 5],
+    "count_line_offset": [-200, 0, 150],
 }
+
+
+class Settings:
+    """Settings from a JSON file, read the way COUNT reads them from the settings window."""
+
+    class _Value:
+        def __init__(self, value):
+            self.value = value
+
+        def get(self):
+            return self.value
+
+    def __init__(self, values):
+        self.values = dict(tracking.DEFAULT_SETTINGS, **values)
+        for name, value in self.values.items():
+            setattr(self, name, self._Value(value))
 
 
 def hand_counts(path):
@@ -65,46 +80,39 @@ def find_videos(paths):
     return videos
 
 
-def detect_all(path, detection_settings, canny_upper):
+def detect_all(path, settings, detection_settings):
     """
-    Read the video once and find the objects in every frame for each detection setting, exactly as
-    tracking.nd2_mog_contours does. Returns ({setting: [[(position, size), ...] per frame]}, image height).
+    Read the video once and find the moving specks in every frame for each (detection_threshold, min_area)
+    setting, exactly as tracking.count_cells does. Returns ({setting: [specks per frame]}, image shape).
     """
     detections = {setting: [] for setting in detection_settings}
-    backSub = cv.createBackgroundSubtractorMOG2(varThreshold=16, detectShadows=False)
-    image_h = None
+    shape = None
     with tracking.open_video(path) as frames:
-        tracking.prime_background(backSub, frames, len(frames))
         n_frames = len(frames)
         started = time.time()
-        for frame_number in range(n_frames):
-            frame = cv.normalize(frames[frame_number], None, 0, 255, cv.NORM_MINMAX, dtype=cv.CV_8U)
-            image_h = frame.shape[0]
-            mask = backSub.apply(frame)
-            for setting in detection_settings:
-                canny_lower, cell_radius = setting
-                found = []
-                if mask.any():
-                    for cnt in tracking.find_cell_contours(mask, canny_lower, canny_upper, cell_radius):
-                        x, y, w, h = cv.boundingRect(cnt)
-                        found.append(((x, y), (w, h)))
-                detections[setting].append(found)
-            if frame_number % 200 == 0 or frame_number == n_frames - 1:
+        for frame_number, frame, background in tracking.backgrounds_by_frame(
+                frames, n_frames, settings.background_window.get()):
+            shape = frame.shape
+            for threshold, min_area in detection_settings:
+                specks = [] if background is None else tracking.find_moving_specks(
+                    frame, background, threshold, min_area, settings.max_area.get())
+                detections[(threshold, min_area)].append(specks)
+            if frame_number % 20 == 0 or frame_number == n_frames - 1:
                 print(f"\r  reading frame {frame_number + 1}/{n_frames} ({time.time() - started:.0f} s)", end="")
     print()
-    return detections, image_h
+    return detections, shape
 
 
-def count_cells(frame_detections, image_h, cell_radius, max_centroid_distance, timeout, min_frames_tracked):
-    """Track stored detections with the given settings. Returns (bottom, top)."""
-    tracker = tracking.Tracker(image_h=image_h, max_centroid_distance=max_centroid_distance, timeout=timeout,
-                               min_frames_tracked=min_frames_tracked, backtrack_tolerance=cell_radius)
-    for frame_number, found in enumerate(frame_detections):
-        objects = [tracking.DetectedObject(None, position, size, frame_number) for position, size in found]
-        tracker.update(objects, frame_number)
-    counted = tracker.finish().values()
-    top = sum(1 for cell in counted if cell.DEP_outlet is True)
-    return len(counted) - top, top
+def count_from_specks(specks_by_frame, count_line_x, outlet_divider_y, max_centroid_distance, timeout, cell_radius,
+                      min_detections=tracking.DEFAULT_SETTINGS["min_detections"]):
+    """Track and count stored specks with the given settings. Returns (bottom, top)."""
+    tracker = tracking.Tracker(count_line_x=count_line_x, outlet_divider_y=outlet_divider_y,
+                               max_centroid_distance=max_centroid_distance, timeout=timeout,
+                               backtrack_tolerance=cell_radius, min_detections=min_detections)
+    for frame_number, specks in enumerate(specks_by_frame):
+        tracker.update(tracking.specks_to_objects(specks, frame_number), frame_number)
+    tracker.finish()
+    return tracker.outlet_counts()
 
 
 def describe(bottom, top):
@@ -122,10 +130,9 @@ def main():
     args = parser.parse_args()
 
     with open(args.settings) as f:
-        settings = json.load(f)
-    settings.setdefault("min_frames_tracked", tracking.DEFAULT_MIN_FRAMES_TRACKED)
-    current_detection = (settings["canny_lower"], settings["cell_radius"])
-    current_tracking = (settings["max_centroid_distance"], settings["timeout"], settings["min_frames_tracked"])
+        settings = Settings(json.load(f))
+    current_detection = (settings.detection_threshold.get(), settings.min_area.get())
+    current_tracking = (settings.max_centroid_distance.get(), settings.timeout.get(), 0)
 
     videos = []
     for path in find_videos(args.paths):
@@ -143,21 +150,23 @@ def main():
         detection_settings += [s for s in itertools.product(*SWEEP_DETECTION.values()) if s != current_detection]
         tracking_settings += [s for s in itertools.product(*SWEEP_TRACKING.values()) if s != current_tracking]
 
-    # rows[(detection, tracking)] = [(bottom, top) per video]
+    # results[(detection, tracking)] = [(bottom, top) per video]
     results = {}
     for path, expected in videos:
         print(f"\n{os.path.basename(path)}: hand count {describe(*expected)}")
-        detections, image_h = detect_all(path, detection_settings, settings["canny_upper"])
+        detections, shape = detect_all(path, settings, detection_settings)
+        line_x, divider_y = tracking.count_line_and_divider(settings, shape)
         for detection in detection_settings:
-            for track in tracking_settings:
-                counts = count_cells(detections[detection], image_h, detection[1], *track)
-                results.setdefault((detection, track), []).append(counts)
+            for max_distance, timeout, offset in tracking_settings:
+                counts = count_from_specks(detections[detection], line_x + offset, divider_y, max_distance, timeout,
+                                           settings.cell_radius.get(), settings.min_detections.get())
+                results.setdefault((detection, (max_distance, timeout, offset)), []).append(counts)
 
     def error(counts):
         """Total cells miscounted across all videos: |bottom - expected bottom| + |top - expected top|."""
         return sum(abs(b - eb) + abs(t - et) for (b, t), (_, (eb, et)) in zip(counts, videos))
 
-    names = ["canny_lower", "cell_radius", "max_centroid_distance", "timeout", "min_frames_tracked"]
+    names = ["detection_threshold", "min_area", "max_centroid_distance", "timeout", "count_line_offset"]
     with open(args.out, "w", newline="") as f:
         writer = csv.writer(f)
         header = names[:]
@@ -168,8 +177,9 @@ def main():
         for (detection, track), counts in sorted(results.items(), key=lambda item: error(item[1])):
             writer.writerow(list(detection) + list(track) + [n for pair in counts for n in pair] + [error(counts)])
 
-    print("\n=== Current settings (COUNT/settings.json) ===")
-    print("  " + ", ".join(f"{n}={v}" for n, v in zip(names, current_detection + current_tracking)))
+    print("\n=== Current settings ===")
+    print("  " + ", ".join(f"{name}={value}" for name, value in settings.values.items()
+                           if name in tracking.DEFAULT_SETTINGS))
     for (path, expected), counts in zip(videos, results[(current_detection, current_tracking)]):
         print(f"  {os.path.basename(path)}")
         print(f"    hand count {describe(*expected)}")
@@ -183,7 +193,7 @@ def main():
             summary = "  |  ".join(f"{b}/{t}" for b, t in counts)
             print(f"  miscounted {error(counts):3d}   " +
                   ", ".join(f"{n}={v}" for n, v in zip(names, detection + track)) + f"   (nDEP/pDEP: {summary})")
-        print(f"  hand counts (nDEP/pDEP): " + "  |  ".join(f"{b}/{t}" for _, (b, t) in videos))
+        print("  hand counts (nDEP/pDEP): " + "  |  ".join(f"{b}/{t}" for _, (b, t) in videos))
         print("\nWith only a few hand-counted videos, the best settings may be tuned to these videos in particular.")
         print("Check any new settings on a video that was not used to choose them.")
     print(f"\nAll results saved to {os.path.abspath(args.out)}")

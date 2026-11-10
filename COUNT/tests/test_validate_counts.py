@@ -34,17 +34,20 @@ class TestMatchesCount(unittest.TestCase):
         """The validation tool must give the same counts as COUNT itself for the same settings."""
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "video.avi")
-            write_avi(path, synthetic_video(cells=((0, 50), (-60, 150), (-120, 60), (-150, 140))))
+            write_avi(path, synthetic_video(cells=((0, 50), (-60, 150), (-120, 60), (-150, 140)),
+                                            dust=((150, 100), (60, 170))))
             ui = FakeUI(cell_radius=6)
 
-            counted = tracking.nd2_mog_contours(path, ui).values()
+            counted = tracking.count_cells(path, ui).values()
             top = sum(1 for cell in counted if cell.DEP_outlet is True)
 
-            setting = (ui.canny_lower.get(), ui.cell_radius.get())
-            detections, image_h = validate_counts.detect_all(path, [setting], ui.canny_upper.get())
-            result = validate_counts.count_cells(detections[setting], image_h, ui.cell_radius.get(),
-                                                 ui.max_centroid_distance.get(), ui.timeout.get(),
-                                                 ui.min_frames_tracked.get())
+            settings = validate_counts.Settings({name: getattr(ui, name).get() for name in tracking.DEFAULT_SETTINGS})
+            setting = (settings.detection_threshold.get(), settings.min_area.get())
+            detections, shape = validate_counts.detect_all(path, settings, [setting])
+            line_x, divider_y = tracking.count_line_and_divider(settings, shape)
+            result = validate_counts.count_from_specks(detections[setting], line_x, divider_y,
+                                                       settings.max_centroid_distance.get(), settings.timeout.get(),
+                                                       settings.cell_radius.get(), settings.min_detections.get())
             self.assertEqual(result, (len(counted) - top, top))
             self.assertEqual(result, (2, 2))
 

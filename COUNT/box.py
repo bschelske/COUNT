@@ -186,7 +186,7 @@ def process_box_file(client, file_id, file_name, app):
     temp_file_path = download_file_from_box(client, file_id)
     try:
         # COUNT onto downloaded temp file
-        counted_objects = tracking.nd2_mog_contours(temp_file_path, app)
+        counted_objects = tracking.count_cells(temp_file_path, app)
         stem = os.path.splitext(file_name)[0]
         tracking.export_to_csv(counted_objects, os.path.join(app.csv_folder_path.get(), f"{stem}_results.csv"))
         tracking.export_trajectories_to_csv(
