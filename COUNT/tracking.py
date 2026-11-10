@@ -363,10 +363,11 @@ def find_moving_specks(frame, background, detection_threshold, min_area, max_are
     """
     Specks that differ from their background: a list of (centre_x, centre_y, width, height, area, contrast).
 
-    `frame` and `background` are 8-bit images of the same size. Anything also present in the background
-    (because it stayed in place) is not found.
+    `frame` is an 8-bit image and `background` an image of the same size. Anything also present in the
+    background (because it stayed in place) is not found. The difference is kept in fractions of a grey level
+    (not rounded), so faint cells just above the threshold are not lost.
     """
-    difference = cv.absdiff(frame, background)
+    difference = cv.absdiff(frame.astype(np.float32), background.astype(np.float32))
     difference = cv.GaussianBlur(difference, (5, 5), 0)
     mask = (difference > detection_threshold).astype(np.uint8)
     n, labels, stats, centroids = cv.connectedComponentsWithStats(mask)
@@ -381,10 +382,14 @@ def find_moving_specks(frame, background, detection_threshold, min_area, max_are
 
 
 def median_background(neighbours):
-    """Per-pixel median (the lower one for an even count) of a list of 8-bit images."""
+    """Per-pixel median of a list of 8-bit images, as float32 (the average of the two middle values for an even
+    count)."""
     stack = np.stack(neighbours)
     middle = (len(neighbours) - 1) // 2
-    return np.partition(stack, middle, axis=0)[middle]
+    if len(neighbours) % 2:
+        return np.partition(stack, middle, axis=0)[middle].astype(np.float32)
+    ordered = np.partition(stack, (middle, middle + 1), axis=0)
+    return (ordered[middle].astype(np.float32) + ordered[middle + 1]) / 2
 
 
 def backgrounds_by_frame(frames, n_frames: int, background_window: int, scale=None, indices=None):

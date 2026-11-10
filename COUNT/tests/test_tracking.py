@@ -211,6 +211,18 @@ class TestDetection(unittest.TestCase):
         centres = sorted((round(cx), round(cy)) for cx, cy, *_ in specks)
         self.assertEqual(centres, [(50, 50), (200, 150)])
 
+    def test_faint_cell_just_above_threshold(self):
+        # A cell 9 grey levels darker than the background, against a threshold of 8, must still be found
+        background = np.full((100, 100), 120.0, dtype=np.float32)
+        frame = np.full((100, 100), 120, dtype=np.uint8)
+        frame[45:50, 45:50] = 108
+        self.assertEqual(len(tracking.find_moving_specks(frame, background, 8, 6, 600)), 1)
+
+    def test_median_background(self):
+        images = [np.full((2, 2), v, dtype=np.uint8) for v in (10, 20, 31, 200)]
+        self.assertTrue((tracking.median_background(images) == 25.5).all())  # (20 + 31) / 2
+        self.assertTrue((tracking.median_background(images[:3]) == 20).all())
+
     def test_size_limits(self):
         background = np.full((200, 300), 120, dtype=np.uint8)
         frame = background.copy()
