@@ -153,6 +153,8 @@ class TestRawAviReader(unittest.TestCase):
 
 class TestProcessingRegion(unittest.TestCase):
     def test_default_region_starts_before_the_line(self):
+        ui = FakeUI()  # default: 1000 px before the line
+        self.assertEqual(tracking.processing_region(ui, (2048, 2048), 1500), (500, 0, 2048, 2048))
         ui = FakeUI(region_before_line=600)
         self.assertEqual(tracking.processing_region(ui, (2048, 2048), 1500), (900, 0, 2048, 2048))
 

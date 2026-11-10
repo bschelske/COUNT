@@ -35,6 +35,9 @@ Speed:
     Only the processing region is analysed: from `region_before_line` pixels left of the counting line to the
     right edge of the image, between rows `region_top` and `region_bottom`. Cells are only counted at the
     line, so the rest of the image (the electrodes, the area outside the channel) does not need processing.
+    The region must start well before the line: a cell's track needs a few images to learn the cell's speed,
+    and a track that is still new when it reaches a crowded group of cells can pick up a neighbour instead.
+    Starting 1000 pixels before the line gave exactly the same counts as processing the whole image.
     The video is split into chunks of frames that are processed on separate processor cores (`workers`), and
     the moving specks found are then tracked in order.
 
@@ -72,7 +75,7 @@ DEFAULT_SETTINGS = {
     "min_detections": 3,          # a cell must be detected in at least this many images to be counted
     "count_line_x": 0,            # x of the counting line (pixels); 0 = three quarters of the image width
     "outlet_divider_y": 0,        # y of the outlet divider (pixels); 0 = the middle of the image
-    "region_before_line": 600,    # process from this many pixels left of the counting line (0 = left edge)
+    "region_before_line": 1000,   # process from this many pixels left of the counting line (0 = left edge)
     "region_top": 0,              # first image row to process (pixels)
     "region_bottom": 0,           # last image row to process (pixels); 0 = the bottom of the image
     "workers": 0,                 # processor cores to use; 0 = all of them
