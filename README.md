@@ -10,6 +10,7 @@ COUNT counts the cells in microscope videos of our DEP microfluidic devices and 
 - **Bottom outlet: nDEP** (no positive DEP response)
 
 ## What COUNT does
+![COUNT counting cells as they cross the counting line](docs/images/COUNT_example.png)
 1. Opens your video (Nikon `.nd2` or `.avi`).
 2. Finds the cells that are **moving**. Dust, cells stuck to the device and the electrodes stay still, so they are ignored.
 3. Follows each moving cell through the video.
