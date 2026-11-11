@@ -240,6 +240,36 @@ class TestOverlaysAndPreview(unittest.TestCase):
             self.assertTrue((images[0][179, 50:200] == (0, 140, 0)).all())  # region box bottom edge
 
 
+class TestHelp(unittest.TestCase):
+    def test_every_setting_has_a_field_and_help(self):
+        from COUNT import ui
+        fields = [name for name, _ in ui.LEFT_FIELDS + ui.RIGHT_FIELDS]
+        self.assertEqual(sorted(fields), sorted(tracking.DEFAULT_SETTINGS))
+        self.assertEqual(sorted(ui.FIELD_HELP), sorted(tracking.DEFAULT_SETTINGS))
+        text = " ".join(body for _, sections in ui.help_sections() for _, body in sections)
+        for name, label in ui.LEFT_FIELDS + ui.RIGHT_FIELDS:
+            self.assertIn(ui.FIELD_HELP[name], text, name)
+
+    def test_help_window_opens_once(self):
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+        except Exception as e:  # no display available
+            self.skipTest(f"no display: {e}")
+        from COUNT import ui
+        try:
+            app = ui.ROISelectionApp(root)
+            app.help_button.invoke()
+            app.help_button.invoke()  # a second click brings the same window forward
+            windows = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+            self.assertEqual(len(windows), 1)
+            text = [w for w in windows[0].winfo_children() if isinstance(w, tk.Text)][0].get("1.0", "end")
+            self.assertIn("Counting Line x", text)
+            self.assertIn("Preview Detection", text)
+        finally:
+            root.destroy()
+
+
 class TestSettingsWindowLayout(unittest.TestCase):
     def test_no_two_widgets_share_a_grid_cell(self):
         try:
