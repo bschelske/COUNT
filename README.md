@@ -37,6 +37,8 @@ pip install -r requirements.txt
 4. Click **Preview Detection** and check the settings are right for your videos (see below).
 5. Click **Confirm**. Progress is shown in the PyCharm window; a video takes about a minute or less.
 
+![The COUNT settings window](docs/images/COUNT_settings_window.png)
+
 Not sure what a setting does? Click **Help** in the COUNT window.
 
 ## Check the preview before counting
