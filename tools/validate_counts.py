@@ -83,20 +83,24 @@ def find_videos(paths):
 def detect_all(path, settings, detection_settings):
     """
     Read the video once and find the moving specks in every frame for each (detection_threshold, min_area)
-    setting, exactly as tracking.count_cells does. Returns ({setting: [specks per frame]}, image shape).
+    setting, exactly as tracking.count_cells does (in the same processing region). The counting line offsets
+    tried by --sweep keep this region. Returns ({setting: [specks per frame]}, image shape).
     """
     detections = {setting: [] for setting in detection_settings}
-    shape = None
     with tracking.open_video(path) as frames:
         n_frames = len(frames)
+        shape = tracking.frame_shape(frames)
+        line_x, _ = tracking.count_line_and_divider(settings, shape)
+        region = tracking.processing_region(settings, shape, line_x)
+        x0, y0 = region[:2]
         started = time.time()
         for frame_number, frame, background in tracking.backgrounds_by_frame(
-                frames, n_frames, settings.background_window.get()):
-            shape = frame.shape
+                frames, n_frames, settings.background_window.get(), region=region):
             for threshold, min_area in detection_settings:
                 specks = [] if background is None else tracking.find_moving_specks(
                     frame, background, threshold, min_area, settings.max_area.get())
-                detections[(threshold, min_area)].append(specks)
+                detections[(threshold, min_area)].append(
+                    [(cx + x0, cy + y0, w, h, area, contrast) for cx, cy, w, h, area, contrast in specks])
             if frame_number % 20 == 0 or frame_number == n_frames - 1:
                 print(f"\r  reading frame {frame_number + 1}/{n_frames} ({time.time() - started:.0f} s)", end="")
     print()
