@@ -10,6 +10,7 @@ COUNT counts the cells in microscope videos of our DEP microfluidic devices and 
 - **Bottom outlet: nDEP** (no positive DEP response)
 
 ## What COUNT does
+![COUNT counting cells as they cross the counting line](docs/images/COUNT_example.png)
 1. Opens your video (Nikon `.nd2` or `.avi`).
 2. Finds the cells that are **moving**. Dust, cells stuck to the device and the electrodes stay still, so they are ignored.
 3. Follows each moving cell through the video.
@@ -35,6 +36,8 @@ pip install -r requirements.txt
 3. Click the right-hand **Choose Folder** to pick where the results are saved.
 4. Click **Preview Detection** and check the settings are right for your videos (see below).
 5. Click **Confirm**. Progress is shown in the PyCharm window; a video takes about a minute or less.
+
+![The COUNT settings window](docs/images/COUNT_settings_window.png)
 
 Not sure what a setting does? Click **Help** in the COUNT window.
 
