@@ -9,6 +9,10 @@
     "min_detections": 3,
     "count_line_x": 1500,
     "outlet_divider_y": 1230,
+    "region_before_line": 1000,
+    "region_top": 700,
+    "region_bottom": 1750,
+    "workers": 0,
     "save_overlay": false,
     "csv_save_path": "results/"
 }
