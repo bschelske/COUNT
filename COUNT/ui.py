@@ -42,6 +42,11 @@ RIGHT_FIELDS = [("count_line_x", "Counting Line x (px, 0 = auto):"),
 PREVIEW_WINDOW = 'Preview: press "4" or "5" to switch images, "ESC" to close'
 
 
+FIRST_FIELD_ROW = 2
+PREVIEW_ROW = FIRST_FIELD_ROW + max(len(LEFT_FIELDS), len(RIGHT_FIELDS))  # first row below the settings
+BUTTON_ROW = PREVIEW_ROW + 1
+
+
 class ROISelectionApp:
     """Contains all information to begin tracking, collected in the user interface"""
 
@@ -107,13 +112,13 @@ class ROISelectionApp:
 
         # Preview button
         tk.Label(self.master, text="Check detection and counting line", anchor=justification).grid(
-            sticky="w", row=8, column=0, padx=5, pady=5)
+            sticky="w", row=PREVIEW_ROW, column=0, padx=5, pady=5)
         self.edge_preview_button = tk.Button(self.master, text="Preview Detection", command=self.preview_edge_detection)
-        self.edge_preview_button.grid(row=8, column=1, padx=5, pady=5)
+        self.edge_preview_button.grid(row=PREVIEW_ROW, column=1, padx=5, pady=5)
 
         # Tracking settings
         for column, fields in ((0, LEFT_FIELDS), (2, RIGHT_FIELDS)):
-            for row, (name, label) in enumerate(fields, start=2):
+            for row, (name, label) in enumerate(fields, start=FIRST_FIELD_ROW):
                 tk.Label(self.master, text=label, anchor=justification).grid(sticky="w", row=row, column=column,
                                                                              padx=5, pady=5)
                 entry = tk.Entry(self.master, textvariable=getattr(self, name))
@@ -123,15 +128,15 @@ class ROISelectionApp:
         # Save overlay checkbox
         self.save_overlay_checkbox = tk.Checkbutton(self.master, text="Save Overlay?", variable=self.save_overlay,
                                                     onvalue=True, offvalue=False, command=self.on_checkbox_click)
-        self.save_overlay_checkbox.grid(row=9, column=0, columnspan=1, padx=5, pady=5)
+        self.save_overlay_checkbox.grid(row=BUTTON_ROW, column=0, columnspan=1, padx=5, pady=5)
 
         # Button to confirm selections
         self.confirm_button = tk.Button(self.master, text="      Confirm     ", command=self.confirm_selections)
-        self.confirm_button.grid(sticky="w", row=9, column=2, padx=1, pady=10)
+        self.confirm_button.grid(sticky="w", row=BUTTON_ROW, column=2, padx=1, pady=10)
 
         # Quit button
         self.quit_button = tk.Button(self.master, text="        Quit        ", command=self.quit_ui)
-        self.quit_button.grid(sticky="w", row=9, column=3, padx=1, pady=10)
+        self.quit_button.grid(sticky="w", row=BUTTON_ROW, column=3, padx=1, pady=10)
 
     def choose_settings_file(self):
         path = filedialog.askopenfilename(filetypes=[("JSON files", "*.json")])

@@ -240,5 +240,21 @@ class TestOverlaysAndPreview(unittest.TestCase):
             self.assertTrue((images[0][179, 50:200] == (0, 140, 0)).all())  # region box bottom edge
 
 
+class TestSettingsWindowLayout(unittest.TestCase):
+    def test_no_two_widgets_share_a_grid_cell(self):
+        try:
+            import tkinter as tk
+            root = tk.Tk()
+        except Exception as e:  # no display available
+            self.skipTest(f"no display: {e}")
+        from COUNT import ui
+        try:
+            ui.ROISelectionApp(root)
+            cells = [(int(w.grid_info()["row"]), int(w.grid_info()["column"])) for w in root.grid_slaves()]
+            self.assertEqual(len(cells), len(set(cells)), "two widgets are in the same place")
+        finally:
+            root.destroy()
+
+
 if __name__ == '__main__':
     unittest.main()
