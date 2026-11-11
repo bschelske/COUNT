@@ -75,7 +75,8 @@ This means:
 ### 2. Following each cell
 COUNT then links each cell from one image to the next. It uses the cell's speed so far to predict where the cell should be in the next image, and picks the closest cell to that prediction. Each cell in an image can only belong to one track, so two cells close together stay separate.
 
-- A cell can move up to **Max Movement Between Images** (100 pixels) from where it was predicted to be. In our recordings, with about 3 images per second, cells move 30–100 pixels between images.
+- A cell can move up to **Max Movement Between Images** (default: 100 pixels) from where it was predicted to be. In our 
+  recordings, with about 3 images per second, cells move 30–100 pixels between images.
 - Cells flow left to right, but a cell may pause or jitter slightly backwards (**Cell Radius**) and still be followed.
 - If a cell isn't found for a few images in a row (**Timeout**), COUNT stops following it.
 
