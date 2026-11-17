@@ -62,12 +62,16 @@ jobs:
       - name: Build app
         run: pyinstaller --noconfirm COUNT.spec
 
-      - name: Check the app counts the synthetic videos correctly
+      - name: Check the app counts the same as the code, and matches the answer keys
         run: |
           python tools/make_synthetic_videos.py synthetic_videos
+          settings="--set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0"
+          python COUNT/main.py --count synthetic_videos/*.avi --out code_results $settings --set workers=1
           # workers=2 checks that counting on several processor cores works in the app
-          "${{ matrix.exe }}" --count synthetic_videos/*.avi --out app_results \
-            --set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0 --set workers=2
+          "${{ matrix.exe }}" --count synthetic_videos/*.avi --out app_results $settings --set workers=2
+          echo "Code:"; python tools/check_app_counts.py synthetic_videos code_results || true
+          echo "App:"
+          diff -r code_results app_results && echo "The app's results are identical to the code's"
           python tools/check_app_counts.py synthetic_videos app_results
 
       # Nikon's Windows library needs the Visual C++ 2008 runtime, which isn't part of Windows (users need it too;
@@ -88,7 +92,7 @@ jobs:
           if [ "$RUNNER_OS" = "macOS" ]; then
             ditto -c -k --keepParent dist/COUNT.app "${{ matrix.asset }}"
           else
-            cd dist && 7z a -tzip "../${{ matrix.asset }}" COUNT > /dev/null
+            (cd dist && 7z a -tzip "../${{ matrix.asset }}" COUNT > /dev/null)
           fi
           ls -la "${{ matrix.asset }}"
 
