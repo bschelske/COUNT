@@ -1,0 +1,120 @@
+# Builds the COUNT app for Windows and macOS, checks each build counts the synthetic test videos correctly,
+# and, for a version tag such as v1.0, attaches the apps to a GitHub release.
+#
+# - Every pull request and push to master: build and check (the apps can be downloaded from the run's page,
+#   under "Artifacts", for 14 days).
+# - Push a tag starting with "v" (git tag v1.0 && git push origin v1.0): also make a release with the apps.
+# - Actions tab -> "Build app" -> "Run workflow": build and check on demand.
+name: Build app
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: windows-latest
+            asset: COUNT-windows.zip
+            exe: dist/COUNT/COUNT.exe
+          - name: macOS (Apple Silicon)
+            runner: macos-15
+            asset: COUNT-macos-apple-silicon.zip
+            exe: dist/COUNT.app/Contents/MacOS/COUNT
+          - name: macOS (Intel)
+            runner: macos-15-intel
+            asset: COUNT-macos-intel.zip
+            exe: dist/COUNT.app/Contents/MacOS/COUNT
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run tests
+        run: python -m unittest discover COUNT/tests
+
+      - name: Build app
+        run: pyinstaller --noconfirm COUNT.spec
+
+      - name: Check the app counts the synthetic videos correctly
+        run: |
+          python tools/make_synthetic_videos.py synthetic_videos
+          # workers=2 checks that counting on several processor cores works in the app
+          "${{ matrix.exe }}" --count synthetic_videos/*.avi --out app_results \
+            --set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0 --set workers=2
+          python tools/check_app_counts.py synthetic_videos app_results
+
+      - name: Check the app can read .nd2 files
+        id: nd2
+        continue-on-error: ${{ runner.os == 'macOS' }}  # Nikon's macOS library is Intel-only
+        run: |
+          "${{ matrix.exe }}" --check-nd2
+          echo "::notice title=${{ matrix.name }}::.nd2 files can be read"
+
+      - name: Note if .nd2 files can't be read
+        if: steps.nd2.outcome == 'failure'
+        run: echo "::warning title=${{ matrix.name }}::This build can't read .nd2 files (only .avi)"
+
+      - name: Package
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent dist/COUNT.app "${{ matrix.asset }}"
+          else
+            cd dist && 7z a -tzip "../${{ matrix.asset }}" COUNT > /dev/null
+          fi
+          ls -la "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 14
+          compression-level: 0  # already zipped
+
+  release:
+    name: Make release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: apps
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: apps/*.zip
+          generate_release_notes: true
+          body: |
+            ## Download COUNT
+            - **Windows**: `COUNT-windows.zip`
+            - **Mac with an Apple chip (M1 or later)**: `COUNT-macos-apple-silicon.zip`. Reads `.avi` files only; for `.nd2` files use the Intel version below, which runs on Apple-chip Macs too.
+            - **Mac with an Intel chip**: `COUNT-macos-intel.zip`
+
+            Unzip it and open COUNT (on Windows, `COUNT.exe` inside the `COUNT` folder). See the README for what to do the first time you open it.
