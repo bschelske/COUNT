@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import cv2
-from COUNT import paths, tracking
+from COUNT import paths, tracking, video
 """
 This code handles the creation of the user interface (UI).
 
@@ -387,6 +387,9 @@ class ROISelectionApp:
         # Get frames
         try:
             frames = tracking.preview_frames(self.files[0], self, n_images=2)
+        except video.ND2Unavailable as e:
+            messagebox.showerror("Can't read .nd2 files", str(e))
+            return
         except ValueError as e:  # e.g. a processing region outside the image
             messagebox.showerror("Invalid setting", str(e))
             return

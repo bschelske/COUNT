@@ -21,7 +21,7 @@ import traceback
 if __package__ in (None, ""):
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from COUNT import paths, tracking
+from COUNT import paths, tracking, video
 
 
 def count_files(files, settings, results_folder):
@@ -41,6 +41,8 @@ def count_files(files, settings, results_folder):
             tracking.export_to_csv(counted_objects, csv_filename)
             tracking.export_trajectories_to_csv(counted_objects.values(), trajectory_csv_filename)
 
+        except video.ND2Unavailable as e:
+            print(f"Error processing file {nd2_file}: {e}")
         except Exception as e:
             print(f"Error processing file {nd2_file}: {e}")
             traceback.print_exc()
@@ -94,17 +96,20 @@ def command_line(argv):
     parser.add_argument("--settings", help="settings file (default: COUNT's default settings file)")
     parser.add_argument("--set", action="append", default=[], metavar="NAME=VALUE",
                         help="change one setting, e.g. --set count_line_x=0 (can be repeated)")
-    parser.add_argument("--check-nd2", action="store_true", help="check that .nd2 files can be read, then exit")
+    parser.add_argument("--check-nd2", nargs="?", const="", metavar="ND2_FILE",
+                        help="check that .nd2 files can be read (and open ND2_FILE, if given), then exit")
     args = parser.parse_args(argv)
 
-    if args.check_nd2:
+    if args.check_nd2 is not None:
         try:
-            from pims import ND2Reader_SDK  # noqa: F401
-            from pims_nd2 import ND2SDK  # noqa: F401  (loads the Nikon SDK library)
+            video.nd2_reader()
+            if args.check_nd2:
+                with video.open_video(args.check_nd2) as frames:
+                    print(f"{args.check_nd2}: {len(frames)} frames of {video.frame_shape(frames)}")
         except Exception as e:
-            print(f"ND2 files can't be read here: {e}")
+            print(e)
             return 1
-        print("ND2 files can be read (Nikon SDK loaded).")
+        print(".nd2 files can be read (Nikon SDK loaded).")
         return 0
 
     values = dict(tracking.DEFAULT_SETTINGS, save_overlay=False)

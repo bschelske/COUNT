@@ -3,21 +3,33 @@
 #     pyinstaller COUNT.spec
 # The app is made in dist/: dist/COUNT/COUNT.exe on Windows, dist/COUNT.app on macOS.
 # GitHub Actions builds it for Windows and macOS (.github/workflows/build-app.yml). See DEVELOPERS.md.
+import os
+import platform
 import sys
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import get_package_paths
 
 datas = [("COUNT/settings.json", "COUNT"), ("COUNT/count.ico", "COUNT")]
 binaries = []
-hiddenimports = []
 
 # The Nikon SDK used to read .nd2 files is a set of libraries inside pims_nd2, which pims only imports when an
-# .nd2 file is opened, so PyInstaller can't find it by itself
-for package in ("pims_nd2",):
-    package_datas, package_binaries, package_hiddenimports = collect_all(package)
-    datas += package_datas
-    binaries += package_binaries
-    hiddenimports += package_hiddenimports + ["pims_nd2.ND2SDK"]
+# .nd2 file is opened, so PyInstaller doesn't find it by itself. Only this system's libraries are collected.
+hiddenimports = ["pims_nd2", "pims_nd2.ND2SDK", "pims_nd2.nd2reader"]
+_, pims_nd2_dir = get_package_paths("pims_nd2")
+sdk_dir = os.path.join(pims_nd2_dir, "ND2SDK")
+if sys.platform == "win32":
+    sdk_libraries = "win/x64"
+elif sys.platform == "darwin":
+    # Intel-only. The framework's top-level files are broken symlinks in the pims_nd2 package (and confuse
+    # PyInstaller), so only the real libraries in Versions/1 are collected, which is all pims_nd2 loads.
+    sdk_libraries = "osx/nd2sdk.framework/Versions/1" if platform.machine() == "x86_64" else None
+else:
+    sdk_libraries = "linux"
+if sdk_libraries:
+    folder = os.path.join(sdk_dir, *sdk_libraries.split("/"))
+    for name in os.listdir(folder):
+        if os.path.isfile(os.path.join(folder, name)) and not name.endswith(".h"):
+            binaries.append((os.path.join(folder, name), "/".join(["pims_nd2", "ND2SDK", sdk_libraries])))
 
 a = Analysis(
     ["COUNT/main.py"],

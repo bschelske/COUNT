@@ -23,6 +23,35 @@ VIDEO_EXTENSIONS = (".nd2", ".avi")  # file types COUNT can track
 Region = typing.Tuple[int, int, int, int]  # (x0, y0, x1, y1): columns x0..x1-1 and rows y0..y1-1
 
 
+class ND2Unavailable(RuntimeError):
+    """The Nikon SDK that reads .nd2 files can't be loaded on this computer."""
+
+
+def nd2_reader():
+    """
+    pims' ND2Reader_SDK, which reads .nd2 files with the Nikon SDK. Imported only when an .nd2 file is opened, so
+    AVI files and the tests work without the SDK. Raises ND2Unavailable, explaining what to do, if the SDK can't
+    be loaded.
+    """
+    try:
+        from pims import ND2Reader_SDK  # pims imports pims_nd2, which loads the Nikon SDK library
+        if not isinstance(ND2Reader_SDK, type):  # pims couldn't import pims_nd2: calling it raises ImportError
+            ND2Reader_SDK()
+    except (ImportError, OSError) as e:
+        import platform
+        import sys
+        if sys.platform == "win32":
+            advice = ("Install the Microsoft Visual C++ 2008 SP1 Redistributable Package (x64), which Nikon's .nd2 "
+                      "reader needs (NIS-Elements computers usually have it), then start COUNT again.")
+        elif sys.platform == "darwin" and platform.machine() != "x86_64":
+            advice = ("Nikon's .nd2 reader only works on Intel Macs. On a Mac with an Apple chip, use the Intel "
+                      "version of the COUNT app (macOS runs it automatically), or export the videos as .avi.")
+        else:
+            advice = "Export the videos as .avi from NIS-Elements, or count them on another computer."
+        raise ND2Unavailable(f".nd2 files can't be read on this computer ({e}). {advice}") from e
+    return ND2Reader_SDK
+
+
 def is_supported_video(path: str) -> bool:
     return path.lower().endswith(VIDEO_EXTENSIONS)
 
@@ -233,8 +262,7 @@ def open_video(path: str):
         finally:
             reader.close()
     elif extension == ".nd2":
-        from pims import ND2Reader_SDK  # imported here so AVI files and the tests work without the Nikon SDK
-        with ND2Reader_SDK(path) as reader:
+        with nd2_reader()(path) as reader:
             if 'm' in reader.sizes.keys():  # new nikon weirdness
                 reader.iter_axes = 'm'
             yield reader

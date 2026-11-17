@@ -29,14 +29,17 @@ jobs:
             runner: windows-latest
             asset: COUNT-windows.zip
             exe: dist/COUNT/COUNT.exe
+            nd2: true
           - name: macOS (Apple Silicon)
             runner: macos-15
             asset: COUNT-macos-apple-silicon.zip
             exe: dist/COUNT.app/Contents/MacOS/COUNT
+            nd2: false  # Nikon's macOS library is Intel-only
           - name: macOS (Intel)
             runner: macos-15-intel
             asset: COUNT-macos-intel.zip
             exe: dist/COUNT.app/Contents/MacOS/COUNT
+            nd2: true
     defaults:
       run:
         shell: bash
@@ -67,16 +70,18 @@ jobs:
             --set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0 --set workers=2
           python tools/check_app_counts.py synthetic_videos app_results
 
-      - name: Check the app can read .nd2 files
-        id: nd2
-        continue-on-error: ${{ runner.os == 'macOS' }}  # Nikon's macOS library is Intel-only
-        run: |
-          "${{ matrix.exe }}" --check-nd2
-          echo "::notice title=${{ matrix.name }}::.nd2 files can be read"
+      # Nikon's Windows library needs the Visual C++ 2008 runtime, which isn't part of Windows (users need it too;
+      # NIS-Elements computers usually have it)
+      - name: Install the Visual C++ 2008 runtime
+        if: runner.os == 'Windows'
+        run: choco install vcredist2008 -y --no-progress
 
-      - name: Note if .nd2 files can't be read
-        if: steps.nd2.outcome == 'failure'
-        run: echo "::warning title=${{ matrix.name }}::This build can't read .nd2 files (only .avi)"
+      - name: Check the app can read .nd2 files
+        if: matrix.nd2
+        run: |
+          # pims_nd2 comes with a small .nd2 file to test with
+          sample=$(python -c "import os, importlib.util as u; print(os.path.join(u.find_spec('pims_nd2').submodule_search_locations[0], 'cluster.nd2'))")
+          "${{ matrix.exe }}" --check-nd2 "$sample"
 
       - name: Package
         run: |

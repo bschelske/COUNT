@@ -27,6 +27,8 @@ No Python needed. Go to the [latest release](https://github.com/bschelske/COUNT/
 - **Windows**: `COUNT-windows.zip`. Unzip it, open the `COUNT` folder and double-click **COUNT.exe**. The first time, Windows may say it "protected your PC": click **More info** → **Run anyway**.
 - **Mac**: `COUNT-macos-apple-silicon.zip` for a Mac with an Apple chip (M1 or later), or `COUNT-macos-intel.zip` for an Intel Mac (Apple menu → **About This Mac** shows which). Unzip it and move **COUNT** to Applications. The first time, macOS will say it can't check COUNT for malware: click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
 
+> **Windows and `.nd2` files:** Nikon's `.nd2` reader needs the Microsoft Visual C++ 2008 SP1 Redistributable (x64), listed under "Visual Studio 2008" on [Microsoft's Visual C++ downloads page](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist). Computers with NIS-Elements usually have it already; if COUNT says it can't read `.nd2` files, install it and start COUNT again.
+>
 > **Mac and `.nd2` files:** Nikon's library for reading `.nd2` files only exists for Intel Macs, so the Apple-chip version reads `.avi` files only. To count `.nd2` files on an Apple-chip Mac, use the Intel version (macOS runs it automatically), or export the videos as `.avi` from NIS-Elements.
 
 Progress is shown in a window while COUNT counts. If you don't choose a results folder, results are saved in **Documents/COUNT/results**. Settings you save with **File → Save as default settings** are kept when you update the app.

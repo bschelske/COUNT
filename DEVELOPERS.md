@@ -105,5 +105,5 @@ python tools/check_app_counts.py synthetic_videos app_results
 
 **Notes:**
 - `pandas`, `scipy` and `boxsdk` are left out of the app (`COUNT.spec`), since only `bg_plotting.py` and `box.py` use them. If the counting code starts using one, remove it from `excludes`.
-- The `.nd2` reader is Nikon's SDK inside `pims_nd2`. Its macOS library is Intel-only, so the Apple-chip build reads `.avi` files only; the build log says whether each build can read `.nd2` files.
+- The `.nd2` reader is Nikon's SDK inside `pims_nd2` (from 2016). Its macOS library is Intel-only, so the Apple-chip build reads `.avi` files only. Its Windows libraries need the Visual C++ 2008 runtime, which the app doesn't include; without it COUNT explains what to install (`video.nd2_reader`). The workflow checks the Windows and Intel Mac builds open `pims_nd2`'s small sample `.nd2` file. Switching to a maintained pure-Python reader (such as the `nd2` package) would remove both limits, but needs checking against real recordings first.
 - The apps aren't code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time they're opened (the README explains how to open them). Signing needs a paid Apple Developer account and a Windows code-signing certificate.
