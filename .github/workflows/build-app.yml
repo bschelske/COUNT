@@ -65,6 +65,7 @@ jobs:
       - name: Check the app counts the same as the code, and matches the answer keys
         run: |
           python tools/make_synthetic_videos.py synthetic_videos
+          python -c "import glob, hashlib; [print(hashlib.sha256(open(f, 'rb').read()).hexdigest()[:16], f) for f in sorted(glob.glob('synthetic_videos/*.avi'))]"
           settings="--set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0"
           python COUNT/main.py --count synthetic_videos/*.avi --out code_results $settings --set workers=1
           # workers=2 checks that counting on several processor cores works in the app
