@@ -19,14 +19,17 @@ Most of the time goes into the median backgrounds. COUNT keeps this down by:
 On a 2-core test machine, the two 2048 × 2048 validation videos (166 and 201 frames) take about 30–40 s each.
 
 ## Code layout
-- `COUNT/main.py`: starts the settings window, then counts each chosen video and saves the CSV files
+- `COUNT/main.py`: starts the settings window, then counts each chosen video and saves the CSV files. With arguments it counts without the window (`python COUNT/main.py --help`)
+- `COUNT/progress_window.py`: the window showing progress while counting (and everything printed)
+- `COUNT/paths.py`: where settings and results are saved, from the code and in the app
 - `COUNT/ui.py`: the settings window, preview and help window
 - `COUNT/tracking.py`: detection, tracking, counting, overlays and CSV export
 - `COUNT/video.py`: reading `.nd2` and `.avi` files
 - `COUNT/bg_plotting.py`: combining results files and plotting pDEP % against frequency
 - `COUNT/box.py`: counting videos stored on Box (needs a Box app's `CLIENT_ID`/`CLIENT_SECRET` in a `.env` file)
 - `COUNT/settings.json`: default settings for the current camera setup
-- `tools/`: the synthetic video generator and the hand-count validation tool (below)
+- `tools/`: the synthetic video generator, the hand-count validation tool (below) and `check_app_counts.py`, which checks a built app's counts
+- `COUNT.spec`, `.github/workflows/build-app.yml`: building the app (below)
 
 ## Dependencies
 Install with `pip install -r requirements.txt`. Keep OpenCV at the pinned 4.9: OpenCV 5.0 crashed reading uncompressed AVI files in testing (COUNT now reads those itself, but other code paths still use OpenCV). `boxsdk` is pinned below 4, because version 4 and later removed the API `box.py` uses.
@@ -71,3 +74,36 @@ ffmpeg -framerate 3 -i "overlay/<video>_%05d.png" overlay.mp4
 
 ## Contributing
 Work on a branch and open a pull request into `master`. Please add or update tests for changes to counting.
+
+## The COUNT app
+The app is COUNT bundled with Python and its libraries by [PyInstaller](https://pyinstaller.org), so people can run it without installing Python.
+
+**Releasing a new version:** push a tag starting with `v`:
+```
+git tag v1.1
+git push origin v1.1
+```
+GitHub Actions (`.github/workflows/build-app.yml`) then builds the app on Windows, macOS (Apple chip) and macOS (Intel), checks each build counts the three synthetic videos exactly, and makes a release with the three zip files. The same build and check run on every pull request and push to master; those apps can be downloaded from the run's page (Actions tab, under Artifacts) for 14 days.
+
+**Building it yourself** (it can only be built for the system you're on):
+```
+pip install -r requirements.txt pyinstaller
+pyinstaller COUNT.spec
+```
+The app is made in `dist/` (`dist/COUNT/COUNT.exe` on Windows, `dist/COUNT.app` on macOS). To check it without the window:
+```
+python tools/make_synthetic_videos.py synthetic_videos
+dist/COUNT/COUNT --count synthetic_videos/*.avi --out app_results --set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0
+python tools/check_app_counts.py synthetic_videos app_results
+```
+
+**Things that differ in the app** (`COUNT/paths.py`):
+- Saved default settings go in `%APPDATA%\COUNT\settings.json` (Windows) or `~/Library/Application Support/COUNT/settings.json` (macOS), because files inside the app are replaced by each new version. Until the user saves their own, the app uses the `COUNT/settings.json` it was built with.
+- A relative results folder (the default `results/`) is put in `Documents/COUNT`.
+- There's no console, so progress and errors are shown in the progress window.
+- Worker processes start by running the app again, so `main.py` calls `multiprocessing.freeze_support()` first.
+
+**Notes:**
+- `pandas`, `scipy` and `boxsdk` are left out of the app (`COUNT.spec`), since only `bg_plotting.py` and `box.py` use them. If the counting code starts using one, remove it from `excludes`.
+- The `.nd2` reader is Nikon's SDK inside `pims_nd2` (from 2016). Its macOS library is Intel-only, so the Apple-chip build reads `.avi` files only. Its Windows libraries need the Visual C++ 2008 runtime, which the app doesn't include; without it COUNT explains what to install (`video.nd2_reader`). The workflow checks the Windows and Intel Mac builds open `pims_nd2`'s small sample `.nd2` file. Switching to a maintained pure-Python reader (such as the `nd2` package) would remove both limits, but needs checking against real recordings first.
+- The apps aren't code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time they're opened (the README explains how to open them). Signing needs a paid Apple Developer account and a Windows code-signing certificate.

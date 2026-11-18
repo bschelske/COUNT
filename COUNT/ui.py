@@ -1,10 +1,11 @@
 import os
+import sys
 import json
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
 import cv2
-from COUNT import tracking
+from COUNT import paths, tracking, video
 """
 This code handles the creation of the user interface (UI).
 
@@ -13,10 +14,12 @@ create_UI() is called by main.py to make the UI appear. This function returns an
 The UI is used to gather parameters for the tracking.
 """
 
-# settings.json and count.ico live next to this file, wherever COUNT is run from
-PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SETTINGS_PATH = os.path.join(PACKAGE_DIR, "settings.json")
-ICON_PATH = os.path.join(PACKAGE_DIR, "count.ico")
+# settings.json and count.ico live next to this file, wherever COUNT is run from. In the app, saved default
+# settings go in the user's settings folder instead (see paths.py).
+PACKAGE_DIR = paths.PACKAGE_DIR
+BUNDLED_SETTINGS_PATH = paths.BUNDLED_SETTINGS_PATH
+DEFAULT_SETTINGS_PATH = paths.default_settings_path()
+ICON_PATH = paths.ICON_PATH
 
 DEFAULT_SETTINGS = dict(tracking.DEFAULT_SETTINGS, save_overlay=False, csv_save_path="results/")
 
@@ -116,9 +119,10 @@ HELP_BUTTONS = [
      "Also save an image of every frame in an 'overlay' folder, showing what was detected and counted, with "
      "running totals. Useful for checking results; processing takes longer."),
     ("Confirm / Quit",
-     "Confirm starts counting; progress is shown in the console. Quit closes COUNT without running."),
+     "Confirm starts counting; progress is shown in a progress window. Quit closes COUNT without running."),
     ("File menu",
-     "Save as default settings: keep the current settings for next time (saved in COUNT/settings.json).\n"
+     "Save as default settings: keep the current settings for next time (saved in COUNT/settings.json, or in "
+     "your user settings folder when using the COUNT app).\n"
      "Load settings: load a saved settings file, for example one kept for each experimental setup.\n"
      "Settings changed in the window without saving only apply to this run."),
 ]
@@ -239,8 +243,11 @@ class ROISelectionApp:
     def load_settings(self):
         """Read SETTINGS_PATH into self.settings. Missing keys fall back to DEFAULT_SETTINGS."""
         self.settings = dict(DEFAULT_SETTINGS)
+        path = self.SETTINGS_PATH
+        if path == DEFAULT_SETTINGS_PATH and not os.path.exists(path):
+            path = BUNDLED_SETTINGS_PATH  # the app: no saved default settings yet, so use the ones it came with
         try:
-            with open(self.SETTINGS_PATH, "r") as file:
+            with open(path, "r") as file:
                 self.settings.update(json.load(file))
         except FileNotFoundError:
             print(f"no settings file found at {self.SETTINGS_PATH}... using defaults")
@@ -252,12 +259,13 @@ class ROISelectionApp:
         for name in TRACKING_SETTINGS:
             getattr(self, name).set(self.settings[name])
         self.save_overlay.set(bool(self.settings["save_overlay"]))
-        self.csv_folder_path.set(self.settings["csv_save_path"])
+        self.csv_folder_path.set(paths.results_path(self.settings["csv_save_path"]))
 
     def save_settings(self):
         settings = {name: getattr(self, name).get() for name in TRACKING_SETTINGS}
         settings["save_overlay"] = self.save_overlay.get()
         settings["csv_save_path"] = self.csv_folder_path.get()
+        os.makedirs(os.path.dirname(os.path.abspath(self.SETTINGS_PATH)), exist_ok=True)
         with open(self.SETTINGS_PATH, "w") as file:
             json.dump(settings, file, indent=4)
         messagebox.showinfo("Settings", f"Settings saved to\n{self.SETTINGS_PATH}")
@@ -379,6 +387,9 @@ class ROISelectionApp:
         # Get frames
         try:
             frames = tracking.preview_frames(self.files[0], self, n_images=2)
+        except video.ND2Unavailable as e:
+            messagebox.showerror("Can't read .nd2 files", str(e))
+            return
         except ValueError as e:  # e.g. a processing region outside the image
             messagebox.showerror("Invalid setting", str(e))
             return
@@ -406,7 +417,7 @@ class ROISelectionApp:
 
     def quit_ui(self):
         self.master.destroy()
-        quit(2)
+        sys.exit(2)  # sys.exit, not quit: quit doesn't exist in the app
 
 
 def help_sections():

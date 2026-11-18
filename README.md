@@ -20,6 +20,20 @@ COUNT counts the cells in microscope videos of our DEP microfluidic devices and 
 See [How COUNT finds, follows and counts cells](#how-count-finds-follows-and-counts-cells) for more detail.
 
 ## Installing COUNT
+There are two ways to get COUNT. Both count videos the same way.
+
+### The COUNT app (easiest)
+No Python needed. Go to the [latest release](https://github.com/bschelske/COUNT/releases/latest) and download the version for your computer:
+- **Windows**: `COUNT-windows.zip`. Unzip it, open the `COUNT` folder and double-click **COUNT.exe**. The first time, Windows may say it "protected your PC": click **More info** → **Run anyway**.
+- **Mac**: `COUNT-macos-apple-silicon.zip` for a Mac with an Apple chip (M1 or later), or `COUNT-macos-intel.zip` for an Intel Mac (Apple menu → **About This Mac** shows which). Unzip it and move **COUNT** to Applications. The first time, macOS will say it can't check COUNT for malware: click **Done**, then go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway**.
+
+> **Windows and `.nd2` files:** Nikon's `.nd2` reader needs the Microsoft Visual C++ 2008 SP1 Redistributable (x64), listed under "Visual Studio 2008" on [Microsoft's Visual C++ downloads page](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist). Computers with NIS-Elements usually have it already; if COUNT says it can't read `.nd2` files, install it and start COUNT again.
+>
+> **Mac and `.nd2` files:** Nikon's library for reading `.nd2` files only exists for Intel Macs, so the Apple-chip version reads `.avi` files only. To count `.nd2` files on an Apple-chip Mac, use the Intel version (macOS runs it automatically), or export the videos as `.avi` from NIS-Elements.
+
+Progress is shown in a window while COUNT counts. If you don't choose a results folder, results are saved in **Documents/COUNT/results**. Settings you save with **File → Save as default settings** are kept when you update the app.
+
+### From the code (for changing COUNT, or if the app doesn't work for you)
 You only need to do this once.
 1. Install [Python](https://www.python.org/downloads/) (3.10 or newer).
 2. Get COUNT, either:
@@ -31,11 +45,11 @@ pip install -r requirements.txt
 ```
 
 ## Counting your videos
-1. Start COUNT: open `COUNT/main.py` in PyCharm and click **Run** (or run `python COUNT/main.py` in a terminal).
+1. Start COUNT: open the COUNT app, or open `COUNT/main.py` in PyCharm and click **Run** (or run `python COUNT/main.py` in a terminal).
 2. Click **Choose File** for one video, or **Choose Folder** to count every video in a folder.
 3. Click the right-hand **Choose Folder** to pick where the results are saved.
 4. Click **Preview Detection** and check the settings are right for your videos (see below).
-5. Click **Confirm**. Progress is shown in the PyCharm window; a video takes about a minute or less.
+5. Click **Confirm**. Progress is shown in a progress window; a video takes about a minute or less. When it finishes, **Open results folder** shows the results.
 
 ![The COUNT settings window](docs/images/COUNT_settings_window.png)
 
@@ -108,6 +122,8 @@ Run `COUNT/bg_plotting.py` (open it in PyCharm and click **Run**):
 2. Click **Choose File** and choose that `final_results.csv` to plot pDEP % against frequency.
 
 ## Updating COUNT
+If you use the app, download the new version from the [latest release](https://github.com/bschelske/COUNT/releases/latest) and replace the old one.
+
 If you installed COUNT with git, open a terminal in the COUNT folder and run:
 ```
 git checkout master

@@ -1,0 +1,153 @@
+# Builds the COUNT app for Windows and macOS, checks each build counts the synthetic test videos correctly,
+# and, for a version tag such as v1.0, attaches the apps to a GitHub release.
+#
+# - Every pull request and push to master: build and check (the apps can be downloaded from the run's page,
+#   under "Artifacts", for 14 days).
+# - Push a tag starting with "v" (git tag v1.0 && git push origin v1.0): also make a release with the apps.
+# - Actions tab -> "Build app" -> "Run workflow": build and check on demand.
+name: Build app
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # The synthetic videos come out slightly differently on each system, so they're made once and every build
+  # counts the same videos
+  test-videos:
+    name: Make test videos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python tools/make_synthetic_videos.py synthetic_videos
+      - uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-videos
+          path: synthetic_videos
+          retention-days: 1
+
+  build:
+    name: ${{ matrix.name }}
+    needs: test-videos
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            runner: windows-latest
+            asset: COUNT-windows.zip
+            exe: dist/COUNT/COUNT.exe
+            nd2: true
+          - name: macOS (Apple Silicon)
+            runner: macos-15
+            asset: COUNT-macos-apple-silicon.zip
+            exe: dist/COUNT.app/Contents/MacOS/COUNT
+            nd2: false  # Nikon's macOS library is Intel-only
+          - name: macOS (Intel)
+            runner: macos-15-intel
+            asset: COUNT-macos-intel.zip
+            exe: dist/COUNT.app/Contents/MacOS/COUNT
+            nd2: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Run tests
+        run: python -m unittest discover COUNT/tests
+
+      - name: Build app
+        run: pyinstaller --noconfirm COUNT.spec
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: synthetic-videos
+          path: synthetic_videos
+
+      - name: Check the app counts the same as the code, and matches the answer keys
+        run: |
+          settings="--set count_line_x=0 --set outlet_divider_y=0 --set region_top=0 --set region_bottom=0"
+          python COUNT/main.py --count synthetic_videos/*.avi --out code_results $settings --set workers=1
+          # workers=2 checks that counting on several processor cores works in the app
+          "${{ matrix.exe }}" --count synthetic_videos/*.avi --out app_results $settings --set workers=2
+          echo "Code:"; python tools/check_app_counts.py synthetic_videos code_results || true
+          echo "App:"
+          diff -r code_results app_results && echo "The app's results are identical to the code's"
+          python tools/check_app_counts.py synthetic_videos app_results
+
+      # Nikon's Windows library needs the Visual C++ 2008 runtime, which isn't part of Windows (users need it too;
+      # NIS-Elements computers usually have it)
+      - name: Install the Visual C++ 2008 runtime
+        if: runner.os == 'Windows'
+        run: choco install vcredist2008 -y --no-progress
+
+      - name: Check the app can read .nd2 files
+        if: matrix.nd2
+        run: |
+          # pims_nd2 comes with a small .nd2 file to test with
+          sample=$(python -c "import os, importlib.util as u; print(os.path.join(u.find_spec('pims_nd2').submodule_search_locations[0], 'cluster.nd2'))")
+          "${{ matrix.exe }}" --check-nd2 "$sample"
+
+      - name: Package
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            ditto -c -k --keepParent dist/COUNT.app "${{ matrix.asset }}"
+          else
+            (cd dist && 7z a -tzip "../${{ matrix.asset }}" COUNT > /dev/null)
+          fi
+          ls -la "${{ matrix.asset }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+          retention-days: 14
+          compression-level: 0  # already zipped
+
+  release:
+    name: Make release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: apps
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: apps/*.zip
+          generate_release_notes: true
+          body: |
+            ## Download COUNT
+            - **Windows**: `COUNT-windows.zip`
+            - **Mac with an Apple chip (M1 or later)**: `COUNT-macos-apple-silicon.zip`. Reads `.avi` files only; for `.nd2` files use the Intel version below, which runs on Apple-chip Macs too.
+            - **Mac with an Intel chip**: `COUNT-macos-intel.zip`
+
+            Unzip it and open COUNT (on Windows, `COUNT.exe` inside the `COUNT` folder). See the README for what to do the first time you open it.
