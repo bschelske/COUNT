@@ -66,16 +66,18 @@ def main():
         return
 
     results_folder = app.csv_folder_path.get()
-    # The counting runs in a background thread, which can't read the window's fields (tkinter only allows that
-    # from the main thread), so take a copy of the settings now
+    # The counting runs in a background thread, which can't use the window's tkinter objects (tkinter only allows
+    # that from the main thread), so take a copy of the settings and files now and let go of the window
     settings = settings_from_window(app)
+    files = list(app.files)
+    del app
 
     def work():
         start_time = time.time()
-        failed = count_files(app.files, settings, results_folder)
+        failed = count_files(files, settings, results_folder)
         print(f"\nDone. Time elapsed: {time.time() - start_time:.2f} s")
         if failed:
-            raise CountingFailed(f"{len(failed)} of {len(app.files)} videos couldn't be counted (see the messages "
+            raise CountingFailed(f"{len(failed)} of {len(files)} videos couldn't be counted (see the messages "
                                  f"above): {', '.join(os.path.basename(f) for f in failed)}")
 
     # Progress is shown in a window (the app has no console) as well as in the console when there is one

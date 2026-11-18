@@ -8,6 +8,7 @@ The counting runs in a background thread; everything it prints (including the tq
 rewrite their line with "\\r") is passed to the window through a queue, because tkinter may only be used from
 the main thread.
 """
+import gc
 import os
 import queue
 import subprocess
@@ -164,6 +165,9 @@ def run_with_progress(work, title="COUNT", results_folder=""):
         finally:
             window.done = True
 
+    # Free any tkinter objects left over (such as the settings window's) now, in the main thread. If the garbage
+    # collector freed them later in the counting thread, Tcl would abort the whole program.
+    gc.collect()
     thread = threading.Thread(target=target, daemon=True)
     thread.start()
     root.after(POLL_MS, window.poll)

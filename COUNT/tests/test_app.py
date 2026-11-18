@@ -53,6 +53,28 @@ class TestProgressWindow(unittest.TestCase):
         finally:
             root.destroy()
 
+    def test_leftover_tkinter_objects_are_not_freed_by_the_counting_thread(self):
+        """If the garbage collector frees a tkinter variable in the counting thread, Tcl aborts the program."""
+        import gc
+
+        class Window:  # a reference cycle, so only the garbage collector frees it, like a closed settings window
+            pass
+        root = tk.Tk()
+        window = Window()
+        window.self = window
+        window.variable = tk.IntVar(root, value=1)
+        root.destroy()
+        del window, root
+
+        def finish_then_close(self):
+            original_finish(self)
+            self.master.after(10, self.master.destroy)
+
+        original_finish = progress_window.ProgressWindow.finish
+        with mock.patch.object(progress_window.ProgressWindow, "finish", finish_then_close):
+            window = progress_window.run_with_progress(gc.collect)  # aborts here without the fix
+        self.assertIsNone(window.error)
+
     def test_work_output_and_errors_reach_the_window(self):
         def work():
             print("hello from work")
