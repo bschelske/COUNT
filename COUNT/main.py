@@ -25,7 +25,11 @@ from COUNT import paths, tracking, video
 
 
 def count_files(files, settings, results_folder):
-    """Count every video in `files` and save each one's results and trajectory CSV files in `results_folder`."""
+    """
+    Count every video in `files` and save each one's results and trajectory CSV files in `results_folder`.
+    Returns the videos that couldn't be counted.
+    """
+    failed = []
     for index, nd2_file in enumerate(files):
         print(f"Processing file {index + 1} of {len(files)}: {nd2_file}")
 
@@ -43,9 +47,12 @@ def count_files(files, settings, results_folder):
 
         except video.ND2Unavailable as e:
             print(f"Error processing file {nd2_file}: {e}")
+            failed.append(nd2_file)
         except Exception as e:
             print(f"Error processing file {nd2_file}: {e}")
             traceback.print_exc()
+            failed.append(nd2_file)
+    return failed
 
 
 def main():
@@ -59,11 +66,17 @@ def main():
         return
 
     results_folder = app.csv_folder_path.get()
+    # The counting runs in a background thread, which can't read the window's fields (tkinter only allows that
+    # from the main thread), so take a copy of the settings now
+    settings = settings_from_window(app)
 
     def work():
         start_time = time.time()
-        count_files(app.files, app, results_folder)
+        failed = count_files(app.files, settings, results_folder)
         print(f"\nDone. Time elapsed: {time.time() - start_time:.2f} s")
+        if failed:
+            raise CountingFailed(f"{len(failed)} of {len(app.files)} videos couldn't be counted (see the messages "
+                                 f"above): {', '.join(os.path.basename(f) for f in failed)}")
 
     # Progress is shown in a window (the app has no console) as well as in the console when there is one
     progress_window.run_with_progress(work, title="COUNT: counting", results_folder=results_folder)
@@ -82,6 +95,17 @@ class SettingValues:
         for name, value in values.items():
             setattr(self, name, self._Value(value))
         self.overlay_path = overlay_path
+
+
+class CountingFailed(Exception):
+    """Some videos couldn't be counted (the reasons have already been printed)."""
+
+
+def settings_from_window(app):
+    """A copy of the settings window's current settings that can be read from any thread."""
+    values = {name: app_value.get() for name in list(tracking.DEFAULT_SETTINGS) + ["save_overlay"]
+              if (app_value := getattr(app, name, None)) is not None}
+    return SettingValues(values, overlay_path=app.overlay_path)
 
 
 def command_line(argv):
@@ -127,9 +151,9 @@ def command_line(argv):
 
     os.makedirs(args.out, exist_ok=True)
     start_time = time.time()
-    count_files(args.count, SettingValues(values, os.path.join(args.out, "overlay")), args.out)
+    failed = count_files(args.count, SettingValues(values, os.path.join(args.out, "overlay")), args.out)
     print(f"Time elapsed: {time.time() - start_time:.2f} s")
-    return 0
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':

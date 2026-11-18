@@ -72,8 +72,9 @@ class ProgressWindow:
         master.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.status = tk.StringVar(value="Counting...")
-        tk.Label(master, textvariable=self.status, anchor="w", font=("TkDefaultFont", 11, "bold")).pack(
-            side="top", fill="x", padx=10, pady=(8, 2))
+        self.status_label = tk.Label(master, textvariable=self.status, anchor="w", justify="left",
+                                     wraplength=780, font=("TkDefaultFont", 11, "bold"))
+        self.status_label.pack(side="top", fill="x", padx=10, pady=(8, 2))
 
         buttons = tk.Frame(master)
         buttons.pack(side="bottom", fill="x", padx=10, pady=8)
@@ -119,7 +120,8 @@ class ProgressWindow:
         if self.error is None:
             self.status.set("Finished." + (f" Results are in {self.results_folder}" if self.results_folder else ""))
         else:
-            self.status.set(f"Stopped by an error: {self.error}")
+            self.status.set(f"Finished with errors: {self.error}")
+            self.status_label.configure(fg="firebrick")
         if self.results_folder and os.path.isdir(self.results_folder):
             self.open_button.configure(state="normal")
 
@@ -155,8 +157,9 @@ def run_with_progress(work, title="COUNT", results_folder=""):
         try:
             work()
         except BaseException as e:  # shown in the window rather than lost
-            import traceback
-            traceback.print_exc()
+            if type(e).__name__ != "CountingFailed":  # its reasons have already been printed
+                import traceback
+                traceback.print_exc()
             window.error = e
         finally:
             window.done = True

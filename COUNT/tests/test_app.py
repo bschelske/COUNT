@@ -69,6 +69,69 @@ class TestProgressWindow(unittest.TestCase):
         self.assertIs(sys.stdout, sys.__stdout__)
 
 
+@unittest.skipUnless(_display_available(), "needs a display")
+class TestCountingFromTheWindow(unittest.TestCase):
+    def test_settings_can_be_read_by_the_counting_thread(self):
+        """Counting runs in a background thread, which can't read tkinter variables (#11 on Windows)."""
+        import threading
+        from COUNT import ui
+        root = tk.Tk()
+        app = ui.ROISelectionApp(root)
+        app.detection_threshold.set(5)
+        app.save_overlay.set(True)
+        app.overlay_path = "somewhere/overlay"
+        settings = main.settings_from_window(app)
+        root.destroy()
+
+        read = {}
+        thread = threading.Thread(target=lambda: read.update(tracking.tracking_settings(settings),
+                                                             save_overlay=tracking._setting(settings, "save_overlay")))
+        thread.start()
+        thread.join()
+        self.assertEqual(read["detection_threshold"], 5)
+        self.assertEqual(set(tracking.DEFAULT_SETTINGS), set(read) - {"save_overlay"})
+        self.assertTrue(read["save_overlay"])
+        self.assertEqual(settings.overlay_path, "somewhere/overlay")
+
+
+    def test_confirm_counts_in_the_progress_window(self):
+        """The whole window flow: settings window, Confirm, counting, progress window."""
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                                        "tools"))
+        import make_synthetic_videos as synth
+        from COUNT import ui
+        with tempfile.TemporaryDirectory() as folder:
+            name, scenario = next(iter(synth.SCENARIOS.items()))
+            synth.make_video(name, scenario, folder, 0)
+            out = os.path.join(folder, "results")
+
+            def create_ui(require_files=True):
+                root = tk.Tk()
+                app = ui.ROISelectionApp(root)
+                app.file_path = os.path.join(folder, f"{name}.avi")
+                for setting in ("count_line_x", "outlet_divider_y", "region_top", "region_bottom"):
+                    getattr(app, setting).set(0)
+                app.workers.set(1)
+                app.csv_folder_path.set(out)
+                root.after(100, app.confirm_selections)
+                root.mainloop()
+                return app
+
+            windows = []
+            original_finish = progress_window.ProgressWindow.finish
+
+            def finish_then_close(window):
+                original_finish(window)
+                windows.append(window)
+                window.master.after(10, window.master.destroy)
+
+            with mock.patch.object(ui, "create_ui", create_ui), \
+                    mock.patch.object(progress_window.ProgressWindow, "finish", finish_then_close):
+                main.main()
+            self.assertIsNone(windows[0].error)
+            self.assertTrue(os.path.exists(os.path.join(out, f"{name}_results.csv")))
+
+
 class TestCommandLine(unittest.TestCase):
     def setUp(self):
         tools = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tools")
